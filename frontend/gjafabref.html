@@ -1,0 +1,94 @@
+{% include "header" %}
+    <section class="hero">
+      <span class="eyebrow">Gjafabréf</span>
+      <h1>Gjafabréf</h1>
+      <p class="lede">
+        Fullkomin gjöf fyrir golfáhugamanninn. Veldu upphæð, persónulega kveðju
+        og afhendingardag — gjafabréfið nýtist fyrir tímabókanir og klippikort í
+        Trackman-hermi okkar.
+      </p>
+      <ul class="gift-perks">
+        <li>Gildir í 4 ár frá útgáfu</li>
+        <li>Afhent rafrænt</li>
+        <li>Einstakur kóði sem nýtist í greiðslu</li>
+        <li>Hægt að nota í áföngum</li>
+      </ul>
+    </section>
+
+    <section class="gift-purchase">
+      <h2>Kaupa gjafabréf</h2>
+      <form id="gift-form" class="gift-form">
+        <label for="gc-amount">Upphæð (ISK)</label>
+        <input id="gc-amount" name="amount" type="number" min="1" step="500" value="10000" required />
+
+        <label for="gc-recipient-name">Nafn móttakanda (valkvætt)</label>
+        <input id="gc-recipient-name" name="recipientName" type="text" />
+
+        <label for="gc-recipient-email">Netfang móttakanda (valkvætt)</label>
+        <input id="gc-recipient-email" name="recipientEmail" type="email" />
+
+        <label for="gc-message">Skilaboð (valkvætt)</label>
+        <textarea id="gc-message" name="message" rows="3"></textarea>
+
+        <button class="btn btn-primary" type="submit">Halda áfram í greiðslu</button>
+      </form>
+      <p class="muted gift-note">
+        Gjafabréfið er gefið út um leið og greiðsla berst. Kóðinn er sendur á
+        netfang móttakanda eða — ef það er autt — á netfangið þitt.
+      </p>
+      <p id="gift-status" class="gift-status" role="status"></p>
+    </section>
+
+    <section class="gift-redeem">
+      <h2>Á ég inneign?</h2>
+      <p class="lede">Sláðu inn gjafabréfskóða til að sjá stöðuna.</p>
+      <form id="gift-lookup-form" class="gift-form">
+        <label for="gc-code">Gjafabréfskóði</label>
+        <input id="gc-code" name="code" type="text" placeholder="GOLF-XXXX-XXXX-XXXX" />
+        <button class="btn btn-secondary" type="submit">Fletta upp</button>
+      </form>
+      <p id="gift-lookup-result" class="gift-status" role="status"></p>
+    </section>
+
+    <script>
+      document.getElementById("gift-form").addEventListener("submit", function (e) {
+        e.preventDefault();
+        var status = document.getElementById("gift-status");
+        var amount = parseInt(document.getElementById("gc-amount").value, 10);
+        if (!Number.isInteger(amount) || amount <= 0) {
+          status.textContent = "Upphæð verður að vera jákvæð heiltala.";
+          return;
+        }
+        status.textContent = "Gjafabréf er gefið út við greiðslu — greiðsluflæði kemur í næsta áfanga.";
+      });
+
+      document.getElementById("gift-lookup-form").addEventListener("submit", async function (e) {
+        e.preventDefault();
+        var result = document.getElementById("gift-lookup-result");
+        var code = document.getElementById("gc-code").value.trim();
+        if (!code) { result.textContent = "Sláðu inn kóða."; return; }
+        result.textContent = "Fletti upp...";
+        try {
+          var res = await fetch("/api/cart/gift-card/lookup", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ code: code })
+          });
+          var data = await res.json();
+          if (data.ok) {
+            result.textContent = "Inneign: " + data.card.balanceLabel + " (" + data.card.code + ")";
+          } else {
+            var reasons = {
+              not_found: "Kóði fannst ekki.",
+              inactive: "Gjafabréf er óvirkt.",
+              expired: "Gjafabréf er útrunnið.",
+              depleted: "Engin inneign eftir."
+            };
+            result.textContent = reasons[data.reason] || "Kóði fannst ekki.";
+          }
+        } catch (err) {
+          result.textContent = "Villa kom upp við uppflettingu.";
+        }
+      });
+    </script>
+{% include "footer" %}

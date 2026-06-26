@@ -1,0 +1,71 @@
+{% include "header" %}
+    <section class="admin-head">
+      <div>
+        <span class="eyebrow">Stjórnborð</span>
+        <h1>Útgefa gjafabréf</h1>
+        <p class="lede">Gefðu út eitt eða fleiri gjafabréf handvirkt.</p>
+      </div>
+      <div class="btn-row">
+        <a class="btn btn-secondary" href="/admin/gift-cards">Til baka</a>
+      </div>
+    </section>
+
+    <section class="admin-form-wrap">
+      <form id="gc-issue-form" class="admin-form">
+        <label for="gc-amount">Upphæð (ISK)</label>
+        <input id="gc-amount" name="amount" type="number" min="1" step="500" value="10000" required />
+
+        <label for="gc-count">Fjöldi (magnútgáfa)</label>
+        <input id="gc-count" name="count" type="number" min="1" max="100" value="1" />
+
+        <label for="gc-recipient-name">Nafn móttakanda (valkvætt)</label>
+        <input id="gc-recipient-name" name="recipientName" type="text" />
+
+        <label for="gc-recipient-email">Netfang móttakanda (valkvætt)</label>
+        <input id="gc-recipient-email" name="recipientEmail" type="email" />
+
+        <label for="gc-message">Skilaboð (valkvætt)</label>
+        <textarea id="gc-message" name="message" rows="3"></textarea>
+
+        <button class="btn btn-primary" type="submit">Útgefa</button>
+      </form>
+      <p id="gc-issue-status" class="gift-status" role="status"></p>
+    </section>
+
+    <script>
+      document.getElementById("gc-issue-form").addEventListener("submit", async function (e) {
+        e.preventDefault();
+        var status = document.getElementById("gc-issue-status");
+        var amount = parseInt(document.getElementById("gc-amount").value, 10);
+        var count = parseInt(document.getElementById("gc-count").value, 10) || 1;
+        if (!Number.isInteger(amount) || amount <= 0) {
+          status.textContent = "Upphæð verður að vera jákvæð heiltala.";
+          return;
+        }
+        var payload = { amount: amount, count: count };
+        var name = document.getElementById("gc-recipient-name").value.trim();
+        var email = document.getElementById("gc-recipient-email").value.trim();
+        var message = document.getElementById("gc-message").value.trim();
+        if (name) payload.recipientName = name;
+        if (email) payload.recipientEmail = email;
+        if (message) payload.message = message;
+        status.textContent = "Útgef...";
+        try {
+          var res = await fetch("/api/admin/gift-cards", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload)
+          });
+          var data = await res.json();
+          if (!res.ok) { status.textContent = data.error || "Útgáfa mistókst."; return; }
+          if (data.giftCard) {
+            window.location.href = "/admin/gift-cards/" + data.giftCard.id;
+          } else {
+            status.textContent = (data.giftCards ? data.giftCards.length : 0) + " gjafabréf útgefin.";
+          }
+        } catch (err) {
+          status.textContent = "Villa kom upp við útgáfu.";
+        }
+      });
+    </script>
+{% include "footer" %}

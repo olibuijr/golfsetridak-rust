@@ -15,6 +15,7 @@ mod auth;
 mod booking;
 mod cart;
 mod content;
+mod giftcards;
 mod mime;
 mod serve;
 mod shop;
