@@ -19,12 +19,6 @@
       "title": "Mínar síður — Golfsetrið Akureyri"
     },
     {
-      "path": "/checkout",
-      "template": "placeholder",
-      "data": "data/checkout.json",
-      "title": "Greiðsla — Golfsetrið Akureyri"
-    },
-    {
       "path": "/admin",
       "template": "placeholder",
       "data": "data/admin.json",

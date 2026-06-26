@@ -431,6 +431,25 @@ impl Store {
         let mut t = self.lock();
         user_package_by_id(&mut t.user_packages, id)
     }
+
+    /// Every klippikort grant owned by `user_id`. Read-side accessor used by
+    /// checkout-fulfillment tests; the production consumer (the "Mínar síður"
+    /// account view) lands in a later phase.
+    #[allow(dead_code)]
+    pub fn user_packages_for_user(&self, user_id: &str) -> Vec<UserPackage> {
+        let mut t = self.lock();
+        full_scan(&mut t.user_packages)
+            .iter()
+            .filter_map(|v| {
+                Some(UserPackage {
+                    id: v.get("id").and_then(Value::as_str)?.to_string(),
+                    user_id: v.get("user_id").and_then(Value::as_str)?.to_string(),
+                    remaining: v.get("remaining").and_then(Value::as_i64)?,
+                })
+            })
+            .filter(|p| p.user_id == user_id)
+            .collect()
+    }
 }
 
 // ---- key + record plumbing -----------------------------------------------

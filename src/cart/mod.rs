@@ -98,8 +98,14 @@ impl Store {
         let (cart, created) = match cart {
             Some(cart) => (cart, false),
             None => {
+                // Reuse the requested id when valid (stable per-user carts);
+                // otherwise mint a random one (first-visit anonymous cart).
+                let id = cookie_cart_id
+                    .filter(|id| valid_cart_id(id))
+                    .map(str::to_string)
+                    .unwrap_or_else(|| next_id("cart", now_ms));
                 let cart = Cart {
-                    id: next_id("cart", now_ms),
+                    id,
                     user_id: None,
                     status: "open".into(),
                     currency: "ISK".into(),
@@ -225,6 +231,40 @@ impl Store {
         put_cart(&mut t.carts, &cart).map_err(io_err)?;
         t.carts.commit().map_err(io_err)?;
         Ok(summary_locked(&mut t, &cart))
+    }
+
+    /// Load a cart by id together with its line items, regardless of status.
+    /// Used by checkout/fulfillment, which operate on `checking_out`/`paid`
+    /// carts (the public `get_or_create_open` deliberately only returns *open*
+    /// anonymous carts).
+    pub fn load_cart(&self, cart_id: &str) -> Option<(Cart, Vec<CartItem>)> {
+        let mut t = self.lock();
+        let cart = cart_by_id(&mut t.carts, cart_id)?;
+        let items = cart_items(&mut t.items, cart_id);
+        Some((cart, items))
+    }
+
+    /// Remove every line item from a cart. Called by checkout fulfillment when a
+    /// cart is paid: the lines are consumed, and clearing them keeps a fresh cart
+    /// empty if its (deterministic, per-user) id is reused afterwards.
+    pub fn clear_items(&self, cart_id: &str) -> Result<(), String> {
+        let mut t = self.lock();
+        for item in cart_items(&mut t.items, cart_id) {
+            t.items.delete(item.id.as_bytes()).map_err(io_err)?;
+        }
+        t.items.commit().map_err(io_err)
+    }
+
+    /// Set a cart's lifecycle status (`open` | `checking_out` | `paid` |
+    /// `failed`). Returns an error if the cart does not exist.
+    pub fn set_status(&self, cart_id: &str, status: &str, now_ms: i64) -> Result<(), String> {
+        let mut t = self.lock();
+        let mut cart =
+            cart_by_id(&mut t.carts, cart_id).ok_or_else(|| "cart not found".to_string())?;
+        cart.status = status.to_string();
+        cart.updated_at = now_ms;
+        put_cart(&mut t.carts, &cart).map_err(io_err)?;
+        t.carts.commit().map_err(io_err)
     }
 }
 

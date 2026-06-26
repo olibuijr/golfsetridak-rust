@@ -16,6 +16,7 @@
 use crate::auth;
 use crate::booking::{self, Store as BookingStore};
 use crate::cart::{self, Store as CartStore};
+use crate::checkout::{self, Store as CheckoutStore};
 use crate::content;
 use crate::mime;
 use crate::shop::{self, Store as ShopStore};
@@ -66,6 +67,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
     let store = Arc::new(BookingStore::open(&data_dir)?);
     let shop_store = Arc::new(ShopStore::open(&shop_data_dir(&root))?);
     let cart_store = Arc::new(CartStore::open(&cart_data_dir(&root))?);
+    let checkout_store = Arc::new(CheckoutStore::open(&checkout_data_dir(&root))?);
 
     // Auth stores live under data/auth/ (sibling of data/booking/).
     let auth_data = data_dir
@@ -79,6 +81,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
     println!("  booking db: {}", data_dir.display());
     println!("  shop db: {}", shop_data_dir(&root).display());
     println!("  cart db: {}", cart_data_dir(&root).display());
+    println!("  checkout db: {}", checkout_data_dir(&root).display());
     println!("  → http://{local}");
     println!("  utilities.css: served at /utilities.css");
 
@@ -89,7 +92,15 @@ pub fn run(cfg: Config) -> io::Result<()> {
         .push(Timing);
 
     server.run_with(middleware, move |req: &Request| {
-        dispatch_reply(&root, &store, &shop_store, &cart_store, &auth, req)
+        dispatch_reply(
+            &root,
+            &store,
+            &shop_store,
+            &cart_store,
+            &checkout_store,
+            &auth,
+            req,
+        )
     })
 }
 
@@ -122,6 +133,13 @@ fn cart_data_dir(frontend_dir: &Path) -> PathBuf {
         .parent()
         .map(|p| p.join("data/cart"))
         .unwrap_or_else(|| frontend_dir.join("data/cart"))
+}
+
+fn checkout_data_dir(frontend_dir: &Path) -> PathBuf {
+    frontend_dir
+        .parent()
+        .map(|p| p.join("data/checkout"))
+        .unwrap_or_else(|| frontend_dir.join("data/checkout"))
 }
 
 /// Seed a demo user, a klippikort package grant (`slots` slots) and an active
@@ -171,6 +189,7 @@ fn dispatch_reply(
     store: &BookingStore,
     shop_store: &ShopStore,
     cart_store: &CartStore,
+    checkout_store: &CheckoutStore,
     auth: &auth::State,
     req: &Request,
 ) -> Reply {
@@ -178,7 +197,15 @@ fn dispatch_reply(
     match path {
         "/login" => auth::login(auth, root, req, store),
         "/logout" => auth::logout(auth, req),
-        _ => Reply::Response(dispatch(root, store, shop_store, cart_store, auth, req)),
+        _ => Reply::Response(dispatch(
+            root,
+            store,
+            shop_store,
+            cart_store,
+            checkout_store,
+            auth,
+            req,
+        )),
     }
 }
 
@@ -188,6 +215,7 @@ fn dispatch(
     store: &BookingStore,
     shop_store: &ShopStore,
     cart_store: &CartStore,
+    checkout_store: &CheckoutStore,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
@@ -218,6 +246,10 @@ fn dispatch(
         "/api/cart" => api_cart(cart_store, req, auth),
         "/api/cart/items" => api_cart_items(store, shop_store, cart_store, req, None, auth),
         "/api/cart/items/bulk" => api_cart_items_bulk(store, shop_store, cart_store, req, auth),
+        "/api/cart/checkout" => checkout::api_checkout(cart_store, checkout_store, auth, req),
+        "/api/payments/landsbankinn/callback" => {
+            checkout::api_landsbankinn_callback(cart_store, checkout_store, store, req)
+        }
         p if p.starts_with("/api/admin/shop/products/") => {
             if !auth.require_role(req, auth::Role::Admin) {
                 return json(401, &error_value("Unauthorized"));
@@ -249,6 +281,13 @@ fn dispatch(
 
         // Home: the server-rendered booking calendar (replaces the placeholder).
         "/" => calendar_page(root, store, auth, req),
+
+        // Checkout + payment result pages (Phase 3 checkout flow).
+        "/checkout" => checkout::page_checkout(root, cart_store, auth, req),
+        "/checkout/bank-transfer" => checkout::page_bank_transfer(root, checkout_store, auth, req),
+        "/checkout/landsbankinn" => checkout::page_landsbankinn(root, auth, req),
+        "/checkout/success" => checkout::page_success(root, auth, req),
+        "/checkout/cancel" => checkout::page_cancel(root, auth, req),
 
         // Markdown content pages — handled explicitly (mirrors the framework's
         // explicit `/changelog` and `/docs/*` routes).
@@ -1015,7 +1054,7 @@ fn resolve_snapshot_item(
 /// Derive a stable, valid cart ID for an authenticated user.
 /// Uses the email with non-alphanumeric chars mapped to dashes so it satisfies
 /// `cart::valid_cart_id` (alphanumeric + dash, max 96 chars).
-fn user_cart_id(email: &str) -> String {
+pub fn user_cart_id(email: &str) -> String {
     let slug: String = email
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
