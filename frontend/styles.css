@@ -107,7 +107,7 @@ h3 { font-size: 1.25rem; }
   text-decoration: none;
 }
 .brand:hover { text-decoration: none; }
-.brand-mark { font-size: 1.6rem; line-height: 1; }
+.brand-mark { width: 34px; height: 34px; display: block; flex: none; }
 .brand-text { display: flex; flex-direction: column; line-height: 1; }
 .brand-name {
   font-family: var(--font-heading);
