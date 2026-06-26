@@ -740,3 +740,205 @@ h3 { font-size: 1.25rem; }
   border-radius: var(--radius-lg);
   padding: 18px 20px;
 }
+
+/* ---- Marketing / rich content pages --------------------------------- */
+
+/* Full-bleed hero band (bleeds past the .container 24px gutter + 40px top). */
+.page-hero {
+  position: relative;
+  overflow: hidden;
+  margin: -40px -24px 0;
+  padding: 92px 24px 76px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(720px 340px at 84% -25%, rgba(5, 150, 105, 0.24), transparent 60%),
+    radial-gradient(560px 320px at -5% 125%, rgba(163, 230, 53, 0.09), transparent 60%),
+    var(--surface);
+}
+.page-hero-inner { position: relative; max-width: var(--maxw); margin-inline: auto; }
+.page-hero h1 {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  font-size: clamp(2.4rem, 6vw, 4.6rem);
+  margin: 14px 0 0;
+}
+.page-hero .accent { color: var(--brand-hover); }
+.page-hero .lede {
+  margin: 20px 0 0;
+  font-size: 1.25rem;
+  color: var(--muted);
+  max-width: 48ch;
+}
+
+/* Section rhythm. */
+.section { padding: 60px 0; }
+.section + .section { border-top: 1px solid var(--border); }
+.section-head { margin-bottom: 34px; max-width: 56ch; }
+.section-head h2 {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  font-size: clamp(1.7rem, 3vw, 2.5rem);
+  margin: 8px 0 0;
+}
+.section-prose { display: grid; gap: 14px; max-width: 62ch; }
+.section-prose p { margin: 0; color: #d6e0d8; }
+
+/* Two-column heading + body. */
+.split { display: grid; gap: 36px; }
+@media (min-width: 880px) {
+  .split { grid-template-columns: 1fr 1fr; align-items: start; }
+}
+
+/* Dark inset band for an inverted feature section. */
+.band-dark {
+  margin-inline: -24px;
+  padding: 4px 24px;
+  background: linear-gradient(180deg, #05080600, #060a07 12%, #060a07 88%, #05080600);
+}
+
+/* Feature / icon cards. */
+.feature-grid {
+  display: grid;
+  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+.feature-card {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding: 26px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.feature-card:hover { border-color: var(--brand-deep); transform: translateY(-2px); }
+.feature-card h3 {
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 1.15rem;
+  margin: 0;
+}
+.feature-card p { margin: 0; color: var(--muted); font-size: 0.95rem; }
+
+.icon-box {
+  display: inline-flex;
+  padding: 10px;
+  width: fit-content;
+  border-radius: 12px;
+  background: rgba(5, 150, 105, 0.14);
+  color: var(--brand-hover);
+}
+.icon-box svg { width: 22px; height: 22px; display: block; }
+
+/* Icon + text checklist rows. */
+.check-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 12px; }
+.check-row {
+  display: flex;
+  gap: 15px;
+  align-items: flex-start;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+.check-row .icon-box { padding: 8px; flex: none; }
+.check-row span { color: #d6e0d8; }
+
+/* Call-to-action card. */
+.cta-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 44px;
+}
+.cta-card h2 { font-weight: 700; text-transform: uppercase; margin: 8px 0 0; }
+.cta-card p { color: var(--muted); max-width: 52ch; }
+.cta-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 26px;
+  margin-top: 30px;
+  padding-top: 26px;
+  border-top: 1px solid var(--border);
+}
+.cta-meta a { display: inline-flex; align-items: center; gap: 9px; color: var(--muted); }
+.cta-meta a:hover { color: var(--brand-hover); text-decoration: none; }
+.cta-meta svg { width: 18px; height: 18px; flex: none; }
+
+/* News cards. */
+.news-grid {
+  display: grid;
+  gap: 18px;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  margin-top: 28px;
+}
+.news-card {
+  display: flex;
+  flex-direction: column;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  overflow: hidden;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.news-card:hover { border-color: var(--brand-deep); transform: translateY(-2px); }
+.news-accent { height: 6px; background: linear-gradient(90deg, var(--brand), var(--accent)); }
+.news-card-body { padding: 24px 22px; display: flex; flex-direction: column; gap: 11px; flex: 1; }
+.news-card .news-date {
+  font-size: 0.76rem;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  color: var(--brand-hover);
+  font-weight: 600;
+}
+.news-card h2 { font-size: 1.4rem; margin: 0; line-height: 1.2; }
+.news-card h2 a { color: var(--text); }
+.news-card h2 a:hover { color: var(--brand-hover); text-decoration: none; }
+.news-card p { margin: 0; color: var(--muted); flex: 1; }
+.news-more {
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.85rem;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* Handbook grouped index. */
+.handbook-grid {
+  display: grid;
+  gap: 10px;
+  margin-top: 26px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+}
+.handbook-card {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 16px 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.handbook-card.is-link:hover { border-color: var(--brand-deep); transform: translateY(-2px); }
+.handbook-card .icon-box { padding: 8px; flex: none; }
+.handbook-card a { color: var(--text); font-weight: 500; }
+.handbook-card a:hover { color: var(--brand-hover); text-decoration: none; }
+.handbook-card.is-muted span { color: var(--muted); }
+
+/* Article detail hero header. */
+.article-hero {
+  margin: -40px -24px 36px;
+  padding: 66px 24px 40px;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(620px 300px at 86% -30%, rgba(5, 150, 105, 0.18), transparent 60%),
+    var(--surface);
+}
+.article-hero-inner { max-width: 46rem; margin-inline: auto; }
+.article-hero h1 { margin: 12px 0 0; text-transform: uppercase; font-weight: 700; }
+.article-hero .article-meta { margin: 14px 0 0; }
