@@ -1,0 +1,343 @@
+{% include "header" %}
+    <section class="hero text-center">
+      <span class="eyebrow">Mínar síður</span>
+      <h1 id="greeting">Halló</h1>
+      <p class="lede">Hér heldur þú utan um bókanir, klippikort, áskriftir og verslun hjá Golfsetrinu.</p>
+    </section>
+
+    <div id="content" style="display:none">
+      <section class="dashboard-stats">
+        <div class="stat-card">
+          <div class="stat-icon">⏱</div>
+          <div class="stat-info">
+            <span class="stat-label">Klippikort</span>
+            <strong id="total-package-hours">0</strong>
+            <span class="stat-note">tímar eftir</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">🛡</div>
+          <div class="stat-info">
+            <span class="stat-label">Áskriftir</span>
+            <strong id="active-subscriptions">0</strong>
+            <span class="stat-note">virkar núna</span>
+          </div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-icon">📅</div>
+          <div class="stat-info">
+            <span class="stat-label">Bókanir</span>
+            <strong id="upcoming-bookings">0</strong>
+            <span class="stat-note">framundan</span>
+          </div>
+        </div>
+      </section>
+
+      <nav class="tab-bar">
+        <a href="/my" class="tab-link active">Yfirlit</a>
+        <a href="/my/verslun" class="tab-link">Verslun</a>
+      </nav>
+
+      <section class="section-card">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Klippikort</span>
+            <h2>Tímapakkarnir þínir</h2>
+          </div>
+          <a href="/#packages" class="btn btn-small">Kaupa</a>
+        </div>
+        <div id="packages-list" class="packages-grid">
+          <p class="empty-state">Engin klippikort fundust.</p>
+        </div>
+      </section>
+
+      <section class="section-card">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Bókanir</span>
+            <h2>Nýlegar bókanir</h2>
+          </div>
+        </div>
+        <div id="bookings-list">
+          <p class="empty-state">Engar bókanir ennþá.</p>
+        </div>
+      </section>
+    </div>
+
+    <div id="loading" class="loading-state">
+      <p>Hleð gögnum...</p>
+    </div>
+
+    <div id="error" class="error-state" style="display:none">
+      <p id="error-message">Villa við að hlaða gögnum.</p>
+    </div>
+
+    <script>
+      async function loadDashboard() {
+        try {
+          const userRes = await fetch('/api/me');
+          if (userRes.status === 401) {
+            window.location.href = '/login';
+            return;
+          }
+          if (!userRes.ok) throw new Error('Failed to load user');
+          const userData = await userRes.json();
+          const user = userData.user;
+
+          const packagesRes = await fetch('/api/user-packages');
+          if (!packagesRes.ok) throw new Error('Failed to load packages');
+          const packagesData = await packagesRes.json();
+          const packages = packagesData.packages || [];
+
+          const bookingsRes = await fetch('/api/bookings');
+          const bookings = bookingsRes.ok ? (await bookingsRes.json()).bookings || [] : [];
+
+          document.getElementById('greeting').textContent = 'Halló, ' + (user.name || user.email);
+
+          const totalHours = packages.reduce((sum, pkg) => sum + pkg.remaining, 0);
+          document.getElementById('total-package-hours').textContent = totalHours;
+
+          const upcomingCount = bookings.filter(b => {
+            const startsAt = new Date(b.startsAt);
+            const now = new Date();
+            return startsAt > now && (b.status === 'confirmed' || b.status === 'pending');
+          }).length;
+          document.getElementById('upcoming-bookings').textContent = upcomingCount;
+
+          if (packages.length === 0) {
+            document.getElementById('packages-list').innerHTML = '<div class="empty-state" style="grid-column: 1 / -1"><p>Engin klippikort fundust.</p><a href="/#packages" class="btn btn-primary">Kaupa klippikort</a></div>';
+          } else {
+            document.getElementById('packages-list').innerHTML = packages.map(pkg => {
+              const pct = pkg.slotCount > 0 ? Math.round((pkg.remaining / pkg.slotCount) * 100) : 0;
+              return '<article class="package-card"><div class="package-header"><h3>' + pkg.name + '</h3><span class="package-percent">' + pct + '%</span></div><p class="package-progress"><span class="package-remaining">' + pkg.remaining + '</span><span class="package-total"> / ' + pkg.slotCount + ' tímar eftir</span></p><div class="progress-bar"><div class="progress-fill" style="width: ' + pct + '%"></div></div></article>';
+            }).join('');
+          }
+
+          if (bookings.length === 0) {
+            document.getElementById('bookings-list').innerHTML = '<div class="empty-state"><p>Engar bókanir ennþá.</p></div>';
+          } else {
+            document.getElementById('bookings-list').innerHTML = '<div class="bookings-table"><div class="booking-header"><span>Tími</span><span>Staða</span></div>' + bookings.map(b => '<div class="booking-row"><span>' + new Date(b.startsAt).toLocaleString('is-IS') + '</span><span class="badge badge-' + b.status + '">' + b.status + '</span></div>').join('') + '</div>';
+          }
+
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('content').style.display = 'block';
+        } catch (err) {
+          console.error(err);
+          document.getElementById('loading').style.display = 'none';
+          document.getElementById('error').style.display = 'block';
+          document.getElementById('error-message').textContent = err.message || 'Villa við að hlaða gögnum.';
+        }
+      }
+
+      loadDashboard();
+    </script>
+
+    <style>
+      .dashboard-stats {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 1rem;
+        margin: 2rem 0;
+      }
+
+      .stat-card {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 1.5rem;
+        border: 1px solid var(--color-border);
+        border-radius: 0.5rem;
+        background: var(--color-bg-secondary);
+      }
+
+      .stat-icon {
+        font-size: 2rem;
+      }
+
+      .stat-info {
+        display: flex;
+        flex-direction: column;
+        gap: 0.25rem;
+      }
+
+      .stat-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--color-text-muted);
+      }
+
+      .stat-info strong {
+        font-size: 1.5rem;
+      }
+
+      .stat-note {
+        font-size: 0.875rem;
+        color: var(--color-text-muted);
+      }
+
+      .tab-bar {
+        display: flex;
+        gap: 0.5rem;
+        margin: 2rem 0 1rem;
+        border-bottom: 2px solid var(--color-border);
+      }
+
+      .tab-link {
+        padding: 0.75rem 1rem;
+        border-bottom: 3px solid transparent;
+        color: var(--color-text-muted);
+        text-decoration: none;
+        font-weight: 500;
+        margin-bottom: -2px;
+        transition: all 0.2s;
+      }
+
+      .tab-link:hover {
+        color: var(--color-text);
+      }
+
+      .tab-link.active {
+        color: var(--color-primary);
+        border-bottom-color: var(--color-primary);
+      }
+
+      .section-card {
+        margin: 2rem 0;
+        padding: 2rem;
+        border: 1px solid var(--color-border);
+        border-radius: 0.5rem;
+        background: var(--color-bg);
+      }
+
+      .section-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 1.5rem;
+      }
+
+      .section-header h2 {
+        margin: 0.5rem 0 0;
+      }
+
+      .packages-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 1rem;
+      }
+
+      .package-card {
+        padding: 1rem;
+        border: 1px solid var(--color-border);
+        border-radius: 0.5rem;
+        background: var(--color-bg-secondary);
+      }
+
+      .package-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 0.75rem;
+      }
+
+      .package-header h3 {
+        margin: 0;
+        font-size: 1rem;
+      }
+
+      .package-percent {
+        font-size: 0.875rem;
+        color: var(--color-text-muted);
+      }
+
+      .package-progress {
+        font-size: 0.875rem;
+        margin-bottom: 0.75rem;
+      }
+
+      .package-remaining {
+        color: var(--color-primary);
+        font-weight: 600;
+      }
+
+      .progress-bar {
+        height: 0.5rem;
+        border-radius: 9999px;
+        background: var(--color-border);
+        overflow: hidden;
+      }
+
+      .progress-fill {
+        height: 100%;
+        background: var(--color-primary);
+        transition: width 0.3s ease;
+      }
+
+      .bookings-table {
+        display: flex;
+        flex-direction: column;
+        gap: 0.5rem;
+      }
+
+      .booking-header {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 1rem;
+        padding: 0.75rem 1rem;
+        background: var(--color-bg-secondary);
+        font-weight: 600;
+        font-size: 0.875rem;
+      }
+
+      .booking-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 1rem;
+        padding: 0.75rem 1rem;
+        border: 1px solid var(--color-border);
+        border-radius: 0.25rem;
+        align-items: center;
+      }
+
+      .badge {
+        padding: 0.25rem 0.75rem;
+        border-radius: 0.25rem;
+        font-size: 0.75rem;
+        font-weight: 600;
+        text-transform: uppercase;
+      }
+
+      .badge-confirmed {
+        background: #d1fae5;
+        color: #065f46;
+      }
+
+      .badge-pending {
+        background: #fef3c7;
+        color: #92400e;
+      }
+
+      .badge-cancelled {
+        background: #fee2e2;
+        color: #7f1d1d;
+      }
+
+      .empty-state {
+        text-align: center;
+        padding: 2rem;
+        color: var(--color-text-muted);
+      }
+
+      .loading-state,
+      .error-state {
+        text-align: center;
+        padding: 3rem 1rem;
+      }
+
+      .error-state {
+        color: var(--color-error);
+      }
+    </style>
+{% include "footer" %}

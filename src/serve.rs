@@ -142,6 +142,8 @@ pub fn seed_demo(frontend_dir: &Path, slots: i64) -> io::Result<()> {
         id: "demo-pkg".into(),
         user_id: "demo".into(),
         remaining: slots,
+        package_name: Some("Demo Package".into()),
+        slot_count: Some(slots),
     })?;
 
     // An active subscription window (yesterday → +60 days), limit 2/day.
@@ -195,6 +197,8 @@ fn dispatch(
     match path {
         "/utilities.css" => utilities(root),
         "/api/health" => json(200, &health()),
+        "/api/me" => api_me(auth, req),
+        "/api/user-packages" => api_user_packages(store, auth, req),
 
         // Booking API (Phase 3). Methods are checked inside each handler.
         "/api/availability" => api_availability(store, req, auth),
@@ -1731,7 +1735,107 @@ fn json(status: u16, value: &Value) -> Response {
     )
 }
 
+/// `GET /api/me` — current user profile.
+fn api_me(auth: &auth::State, req: &Request) -> Response {
+    if req.method != Method::Get {
+        return json(405, &error_value("method not allowed"));
+    }
+    let Some(user) = auth.current_user(req) else {
+        return json(401, &error_value("Unauthorized"));
+    };
+    let profile = Value::Object(vec![
+        ("id".into(), Value::Str(user.email.clone())),
+        ("email".into(), Value::Str(user.email)),
+        ("role".into(), Value::Str(user.role.as_str().into())),
+    ]);
+    json(200, &Value::Object(vec![("user".into(), profile)]))
+}
+
+/// `GET /api/user-packages` — user's packages with remaining slots.
+fn api_user_packages(store: &BookingStore, auth: &auth::State, req: &Request) -> Response {
+    if req.method != Method::Get {
+        return json(405, &error_value("method not allowed"));
+    }
+    let Some(user) = auth.current_user(req) else {
+        return json(401, &error_value("Unauthorized"));
+    };
+    let packages = store.user_packages_for_user(&user.email);
+    let pkg_values: Vec<Value> = packages
+        .into_iter()
+        .map(|p| {
+            Value::Object(vec![
+                ("id".into(), Value::Str(p.id)),
+                (
+                    "name".into(),
+                    p.package_name
+                        .map(Value::Str)
+                        .unwrap_or(Value::Str("Unknown".into())),
+                ),
+                (
+                    "slotCount".into(),
+                    p.slot_count.map(Value::Int).unwrap_or(Value::Int(0)),
+                ),
+                ("remaining".into(), Value::Int(p.remaining)),
+            ])
+        })
+        .collect();
+    json(
+        200,
+        &Value::Object(vec![("packages".into(), Value::Array(pkg_values))]),
+    )
+}
+
 fn health() -> Value {
+
+/// `GET /api/me` — current user profile.
+fn api_me(auth: &auth::State, req: &Request) -> Response {
+    if req.method != Method::Get {
+        return json(405, &error_value("method not allowed"));
+    }
+    let Some(user) = auth.current_user(req) else {
+        return json(401, &error_value("Unauthorized"));
+    };
+    let profile = Value::Object(vec![
+        ("id".into(), Value::Str(user.email.clone())),
+        ("email".into(), Value::Str(user.email)),
+        ("role".into(), Value::Str(user.role.as_str().into())),
+    ]);
+    json(200, &Value::Object(vec![("user".into(), profile)]))
+}
+
+/// `GET /api/user-packages` — user's packages with remaining slots.
+fn api_user_packages(store: &BookingStore, auth: &auth::State, req: &Request) -> Response {
+    if req.method != Method::Get {
+        return json(405, &error_value("method not allowed"));
+    }
+    let Some(user) = auth.current_user(req) else {
+        return json(401, &error_value("Unauthorized"));
+    };
+    let packages = store.user_packages_for_user(&user.email);
+    let pkg_values: Vec<Value> = packages
+        .into_iter()
+        .map(|p| {
+            Value::Object(vec![
+                ("id".into(), Value::Str(p.id)),
+                (
+                    "name".into(),
+                    p.package_name
+                        .map(Value::Str)
+                        .unwrap_or(Value::Str("Unknown".into())),
+                ),
+                (
+                    "slotCount".into(),
+                    p.slot_count.map(Value::Int).unwrap_or(Value::Int(0)),
+                ),
+                ("remaining".into(), Value::Int(p.remaining)),
+            ])
+        })
+        .collect();
+    json(
+        200,
+        &Value::Object(vec![("packages".into(), Value::Array(pkg_values))]),
+    )
+}
     Value::Object(vec![
         ("app".into(), Value::Str("golfsetridak".into())),
         ("framework".into(), Value::Str("AkurAI-Framework".into())),
