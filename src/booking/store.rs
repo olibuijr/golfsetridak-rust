@@ -113,6 +113,7 @@ fn is_active(status: &str) -> bool {
 /// The set of B+trees, guarded together by the store's single write lock.
 struct Trees {
     bookings: BTree,
+    user_subscription_members: BTree,
     user_packages: BTree,
     user_subscriptions: BTree,
     pricing_rules: BTree,
@@ -127,6 +128,9 @@ pub struct Store {
 /// Monotonic suffix so booking ids are unique even within the same millisecond.
 static BOOKING_SEQ: AtomicU64 = AtomicU64::new(0);
 
+/// Monotonic suffix so subscription-member ids are unique within a millisecond.
+static MEMBER_SEQ: AtomicU64 = AtomicU64::new(0);
+
 impl Store {
     /// Open (creating if absent) every tree under `data_dir`, then seed default
     /// pricing rules if none exist yet.
@@ -135,6 +139,7 @@ impl Store {
         let open = |name: &str| BTree::open(data_dir.join(name));
         let trees = Trees {
             bookings: open("bookings.db")?,
+            user_subscription_members: open("user_subscription_members.db")?,
             user_packages: open("user_packages.db")?,
             user_subscriptions: open("user_subscriptions.db")?,
             pricing_rules: open("pricing_rules.db")?,
@@ -309,8 +314,19 @@ impl Store {
                 let ref_id =
                     ref_id.ok_or("userSubscriptionId is required for subscription bookings")?;
                 let sub = user_subscription_by_id(&mut t.user_subscriptions, ref_id)
-                    .filter(|s| s.user_id == user_id)
                     .ok_or("Áskrift fannst ekki")?;
+                // Access: the owner, or any *active* member of the subscription.
+                // This is what makes the daily limit shared — every booking is
+                // counted by `user_subscription_id` (not per user), so the whole
+                // group draws down one pool.
+                let is_owner = sub.user_id == user_id;
+                let is_active_member =
+                    scan_members_locked(&mut t.user_subscription_members, ref_id)
+                        .iter()
+                        .any(|m| m.status == "active" && m.user_id.as_deref() == Some(user_id));
+                if !is_owner && !is_active_member {
+                    return Err("Áskrift fannst ekki".into());
+                }
                 if !covers_date(sub.valid_from, sub.valid_until, slot_ms) {
                     return Err("Tími er utan gildistíma áskriftar".into());
                 }
@@ -430,6 +446,311 @@ impl Store {
     pub fn user_package(&self, id: &str) -> Option<UserPackage> {
         let mut t = self.lock();
         user_package_by_id(&mut t.user_packages, id)
+    }
+    /// Insert/replace a user subscription member. The storage key is
+    /// `<user_subscription_id>:<member_id>`, which keeps every member of a
+    /// subscription contiguous in the tree for prefix-scanned listing.
+    pub fn put_user_subscription_member(
+        &self,
+        member: &crate::booking::subscription_sharing::UserSubscriptionMember,
+    ) -> io::Result<()> {
+        let mut t = self.lock();
+        let opt_int = |o: Option<i64>| o.map(Value::Int).unwrap_or(Value::Null);
+        let opt_str = |o: &Option<String>| o.clone().map(Value::Str).unwrap_or(Value::Null);
+        let v = Value::Object(vec![
+            ("id".into(), Value::Str(member.id.clone())),
+            (
+                "user_subscription_id".into(),
+                Value::Str(member.user_subscription_id.clone()),
+            ),
+            ("user_id".into(), opt_str(&member.user_id)),
+            ("role".into(), Value::Str(member.role.clone())),
+            ("status".into(), Value::Str(member.status.clone())),
+            ("invited_phone".into(), opt_str(&member.invited_phone)),
+            ("invited_at".into(), Value::Int(member.invited_at)),
+            ("accepted_at".into(), opt_int(member.accepted_at)),
+            ("removed_at".into(), opt_int(member.removed_at)),
+        ]);
+        let key = format!("{}:{}", member.user_subscription_id, member.id);
+        t.user_subscription_members
+            .insert(key.as_bytes(), v.to_json().as_bytes())?;
+        t.user_subscription_members.commit()
+    }
+
+    /// List the `active`/`invited` members of a subscription, owners first then
+    /// by invite time. Mirrors `listSubscriptionMembers` (removed rows hidden).
+    pub fn list_subscription_members(
+        &self,
+        user_subscription_id: &str,
+    ) -> Vec<crate::booking::subscription_sharing::ListMemberView> {
+        let mut t = self.lock();
+        let mut members: Vec<crate::booking::subscription_sharing::ListMemberView> =
+            scan_members_locked(&mut t.user_subscription_members, user_subscription_id)
+                .into_iter()
+                .filter(|m| m.status != "removed")
+                .map(|m| crate::booking::subscription_sharing::ListMemberView {
+                    id: m.id,
+                    user_id: m.user_id,
+                    // The Rust port keys users by email and stores no separate
+                    // name/phone column, so these are surfaced only via the
+                    // invited phone. Left None for joined-user display.
+                    name: None,
+                    phone: None,
+                    invited_phone: m.invited_phone,
+                    role: m.role,
+                    status: m.status,
+                    invited_at: m.invited_at,
+                    accepted_at: m.accepted_at,
+                })
+                .collect();
+        // Owners first, then chronological by invite time.
+        members.sort_by(|a, b| match (a.role.as_str(), b.role.as_str()) {
+            ("owner", "owner") => a.invited_at.cmp(&b.invited_at),
+            ("owner", _) => std::cmp::Ordering::Less,
+            (_, "owner") => std::cmp::Ordering::Greater,
+            _ => a.invited_at.cmp(&b.invited_at),
+        });
+        members
+    }
+
+    /// Every subscription id `user_id` can use: ones they own, plus ones they
+    /// are an `active` member of. Mirrors `getAccessibleUserSubscriptionIds`.
+    /// Ported library surface for the account UI (not yet HTTP-routed);
+    /// exercised by unit tests.
+    #[allow(dead_code)]
+    pub fn accessible_user_subscription_ids(&self, user_id: &str) -> Vec<String> {
+        let mut t = self.lock();
+        let mut ids = std::collections::BTreeSet::new();
+
+        // Owned subscriptions.
+        for v in all_records(&mut t.user_subscriptions) {
+            if v.get("user_id").and_then(Value::as_str) == Some(user_id) {
+                if let Some(id) = v.get("id").and_then(Value::as_str) {
+                    ids.insert(id.to_string());
+                }
+            }
+        }
+        // Active memberships.
+        for m in all_members_locked(&mut t.user_subscription_members) {
+            if m.status == "active" && m.user_id.as_deref() == Some(user_id) {
+                ids.insert(m.user_subscription_id);
+            }
+        }
+        ids.into_iter().collect()
+    }
+
+    /// Ensure the subscription owner has an `owner`/`active` member row. Called
+    /// before listing/inviting so the owner always appears in the roster.
+    /// Idempotent — does nothing if an owner row already exists.
+    pub fn ensure_owner_subscription_membership(
+        &self,
+        user_subscription_id: &str,
+        owner_user_id: &str,
+        now: i64,
+    ) -> io::Result<()> {
+        {
+            let mut t = self.lock();
+            let existing =
+                scan_members_locked(&mut t.user_subscription_members, user_subscription_id);
+            if existing.iter().any(|m| {
+                m.role == "owner"
+                    && m.user_id.as_deref() == Some(owner_user_id)
+                    && m.status == "active"
+            }) {
+                return Ok(());
+            }
+        }
+        let seq = MEMBER_SEQ.fetch_add(1, Ordering::Relaxed);
+        let member = crate::booking::subscription_sharing::UserSubscriptionMember {
+            id: format!("usm-{now}-{seq}"),
+            user_subscription_id: user_subscription_id.to_string(),
+            user_id: Some(owner_user_id.to_string()),
+            role: "owner".into(),
+            status: "active".into(),
+            invited_phone: None,
+            invited_at: now,
+            accepted_at: Some(now),
+            removed_at: None,
+        };
+        self.put_user_subscription_member(&member)
+    }
+
+    /// Is `user_id` allowed to book against `user_subscription_id` — i.e. the
+    /// subscription owner, or an `active` member of it?
+    pub fn can_use_subscription(&self, user_id: &str, user_subscription_id: &str) -> bool {
+        let mut t = self.lock();
+        if let Some(sub) = user_subscription_by_id(&mut t.user_subscriptions, user_subscription_id)
+        {
+            if sub.user_id == user_id {
+                return true;
+            }
+        }
+        scan_members_locked(&mut t.user_subscription_members, user_subscription_id)
+            .iter()
+            .any(|m| m.status == "active" && m.user_id.as_deref() == Some(user_id))
+    }
+
+    /// Owner-only: invite a member to a subscription by phone. Creates an
+    /// `invited` member row keyed by the normalized Icelandic phone. Mirrors
+    /// `inviteSubscriptionMember`. Enforces: only the owner may invite, and a
+    /// unique open invite per (subscription, phone).
+    pub fn invite_subscription_member(
+        &self,
+        owner_user_id: &str,
+        user_subscription_id: &str,
+        phone: &str,
+        now: i64,
+    ) -> Result<crate::booking::subscription_sharing::UserSubscriptionMember, String> {
+        let invited_phone =
+            crate::booking::subscription_sharing::normalize_subscription_invite_phone(phone)?;
+
+        // Owner guard + uniqueness check under the lock.
+        {
+            let mut t = self.lock();
+            let sub = user_subscription_by_id(&mut t.user_subscriptions, user_subscription_id)
+                .ok_or("Áskrift fannst ekki")?;
+            if sub.user_id != owner_user_id {
+                return Err("Aðeins eigandi getur deilt áskriftinni".into());
+            }
+            let existing =
+                scan_members_locked(&mut t.user_subscription_members, user_subscription_id);
+            // Unique open invite per (sub, phone): an active/invited row with the
+            // same invited phone blocks a duplicate invite.
+            if existing.iter().any(|m| {
+                (m.status == "active" || m.status == "invited")
+                    && m.invited_phone.as_deref() == Some(invited_phone.as_str())
+            }) {
+                return Err("Þessi aðili er þegar á áskriftinni eða með opið boð".into());
+            }
+        }
+
+        // Ensure the owner roster row exists, then insert the invited member.
+        self.ensure_owner_subscription_membership(user_subscription_id, owner_user_id, now)
+            .map_err(io_err)?;
+
+        let seq = MEMBER_SEQ.fetch_add(1, Ordering::Relaxed);
+        let member = crate::booking::subscription_sharing::UserSubscriptionMember {
+            id: format!("usm-{now}-{seq}"),
+            user_subscription_id: user_subscription_id.to_string(),
+            user_id: None,
+            role: "member".into(),
+            status: "invited".into(),
+            invited_phone: Some(invited_phone),
+            invited_at: now,
+            accepted_at: None,
+            removed_at: None,
+        };
+        self.put_user_subscription_member(&member).map_err(io_err)?;
+        Ok(member)
+    }
+
+    /// Accept every pending invite addressed to `phone`, binding them to
+    /// `user_id` and flipping them to `active`. Mirrors
+    /// `acceptPendingSubscriptionInvites`. A no-op when `phone` is `None`.
+    /// Enforces unique active (sub, user): if the user is already an active
+    /// member of a subscription, that invite is dropped (removed) instead of
+    /// creating a duplicate active row.
+    // Ported library surface: invite acceptance is driven by login phone in the
+    // source, but the Rust port captures no phone at email-OTP login (see
+    // PORT.md), so this is exercised by unit tests pending that UI wiring.
+    #[allow(dead_code)]
+    pub fn accept_pending_subscription_invites(
+        &self,
+        user_id: &str,
+        phone: Option<&str>,
+        now: i64,
+    ) -> Result<usize, String> {
+        let Some(phone) = phone else { return Ok(0) };
+        let normalized =
+            crate::booking::subscription_sharing::normalize_subscription_invite_phone(phone)?;
+
+        // Collect all invited rows matching this phone (across subscriptions).
+        let pending: Vec<crate::booking::subscription_sharing::UserSubscriptionMember> = {
+            let mut t = self.lock();
+            all_members_locked(&mut t.user_subscription_members)
+                .into_iter()
+                .filter(|m| {
+                    m.status == "invited" && m.invited_phone.as_deref() == Some(normalized.as_str())
+                })
+                .collect()
+        };
+
+        let mut accepted = 0;
+        for mut m in pending {
+            // Unique active (sub, user): skip if already an active member.
+            let already_active = {
+                let mut t = self.lock();
+                scan_members_locked(&mut t.user_subscription_members, &m.user_subscription_id)
+                    .iter()
+                    .any(|x| x.status == "active" && x.user_id.as_deref() == Some(user_id))
+            };
+            if already_active {
+                m.status = "removed".into();
+                m.removed_at = Some(now);
+                self.put_user_subscription_member(&m).map_err(io_err)?;
+                continue;
+            }
+            m.user_id = Some(user_id.to_string());
+            m.status = "active".into();
+            m.accepted_at = Some(now);
+            self.put_user_subscription_member(&m).map_err(io_err)?;
+            accepted += 1;
+        }
+        Ok(accepted)
+    }
+
+    /// Owner-only: remove a member from a subscription (status → `removed`).
+    /// Mirrors `removeSubscriptionMember`. Only `member`-role rows can be
+    /// removed — the owner can never remove themselves this way.
+    pub fn remove_subscription_member(
+        &self,
+        owner_user_id: &str,
+        user_subscription_id: &str,
+        member_id: &str,
+        now: i64,
+    ) -> Result<crate::booking::subscription_sharing::UserSubscriptionMember, String> {
+        let mut target = {
+            let mut t = self.lock();
+            let sub = user_subscription_by_id(&mut t.user_subscriptions, user_subscription_id)
+                .ok_or("Áskrift fannst ekki")?;
+            if sub.user_id != owner_user_id {
+                return Err("Aðeins eigandi getur fjarlægt meðlimi".into());
+            }
+            scan_members_locked(&mut t.user_subscription_members, user_subscription_id)
+                .into_iter()
+                .find(|m| m.id == member_id && m.role == "member")
+                .ok_or("Meðlimur fannst ekki")?
+        };
+        target.status = "removed".into();
+        target.removed_at = Some(now);
+        self.put_user_subscription_member(&target).map_err(io_err)?;
+        Ok(target)
+    }
+
+    /// Shared daily usage for a subscription: bookings made today by ANY active
+    /// member (counted by `user_subscription_id`) against the subscription's
+    /// daily limit. Mirrors `summarizeSharedSubscriptionUsage` fed by the real
+    /// booking count.
+    pub fn shared_subscription_usage(
+        &self,
+        user_subscription_id: &str,
+        now: i64,
+    ) -> Option<crate::booking::subscription_sharing::SharedUsageSummary> {
+        let mut t = self.lock();
+        let sub = user_subscription_by_id(&mut t.user_subscriptions, user_subscription_id)?;
+        let day = day_start(now);
+        let used = count_active_subscription_bookings(
+            &mut t.bookings,
+            user_subscription_id,
+            day,
+            day + DAY_MS,
+        );
+        Some(
+            crate::booking::subscription_sharing::summarize_shared_subscription_usage(
+                sub.daily_limit,
+                used,
+            ),
+        )
     }
 }
 
@@ -597,6 +918,72 @@ fn pricing_rule_from_value(v: Value) -> Option<PricingRule> {
         end_hour: v.get("end_hour").and_then(Value::as_i64)?,
         price: v.get("price").and_then(Value::as_i64)?,
     })
+}
+
+fn member_from_value(
+    v: &akurai_json::Value,
+) -> Option<crate::booking::subscription_sharing::UserSubscriptionMember> {
+    Some(
+        crate::booking::subscription_sharing::UserSubscriptionMember {
+            id: v
+                .get("id")
+                .and_then(akurai_json::Value::as_str)?
+                .to_string(),
+            user_subscription_id: v
+                .get("user_subscription_id")
+                .and_then(akurai_json::Value::as_str)?
+                .to_string(),
+            user_id: v
+                .get("user_id")
+                .and_then(akurai_json::Value::as_str)
+                .map(|s| s.to_string()),
+            role: v
+                .get("role")
+                .and_then(akurai_json::Value::as_str)?
+                .to_string(),
+            status: v
+                .get("status")
+                .and_then(akurai_json::Value::as_str)?
+                .to_string(),
+            invited_phone: v
+                .get("invited_phone")
+                .and_then(akurai_json::Value::as_str)
+                .map(|s| s.to_string()),
+            invited_at: v.get("invited_at").and_then(akurai_json::Value::as_i64)?,
+            accepted_at: v.get("accepted_at").and_then(akurai_json::Value::as_i64),
+            removed_at: v.get("removed_at").and_then(akurai_json::Value::as_i64),
+        },
+    )
+}
+
+/// All member rows for one subscription (prefix scan on `<sub_id>:`), in key
+/// order. Includes removed rows — callers filter as needed.
+fn scan_members_locked(
+    tree: &mut BTree,
+    user_subscription_id: &str,
+) -> Vec<crate::booking::subscription_sharing::UserSubscriptionMember> {
+    let prefix = format!("{user_subscription_id}:");
+    let mut hi = prefix.clone().into_bytes();
+    // Upper bound: same prefix with a trailing 0xff terminator keeps the scan
+    // confined to this subscription's keys.
+    hi.push(0xff);
+    tree.range(prefix.as_bytes(), &hi)
+        .unwrap_or_default()
+        .iter()
+        .filter_map(|(_, raw)| akurai_json::parse(&String::from_utf8_lossy(raw)).ok())
+        .filter_map(|v| member_from_value(&v))
+        .collect()
+}
+
+/// Every member row across all subscriptions (full scan). Used by invite
+/// acceptance, which matches on phone irrespective of subscription.
+fn all_members_locked(
+    tree: &mut BTree,
+) -> Vec<crate::booking::subscription_sharing::UserSubscriptionMember> {
+    full_scan(tree)
+        .iter()
+        .filter_map(member_from_value)
+        .collect()
 }
 
 fn active_pricing_rules_locked(tree: &mut BTree) -> Vec<PricingRule> {
@@ -885,6 +1272,231 @@ mod tests {
             .create_booking("u2", slot, "single", None, None, now)
             .unwrap_err();
         assert_eq!(err, "Þessi tími er þegar bókaður");
+        cleanup(&dir);
+    }
+
+    // ---- subscription sharing --------------------------------------------
+
+    /// Seed an active subscription owned by `owner`, valid around `now`.
+    fn seed_sub(store: &Store, id: &str, owner: &str, now: i64) {
+        let today = day_start(now);
+        store
+            .put_user_subscription(&UserSubscription {
+                id: id.into(),
+                user_id: owner.into(),
+                valid_from: add_days(today, -1),
+                valid_until: add_days(today, 60),
+                daily_limit: 2,
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn invite_then_accept_makes_member_active() {
+        let (store, dir) = temp_store("share-accept");
+        let now = parse_date("2026-06-26").unwrap();
+        seed_sub(&store, "sub1", "owner@x.is", now);
+
+        let member = store
+            .invite_subscription_member("owner@x.is", "sub1", "555 1234", now)
+            .expect("invite ok");
+        assert_eq!(member.status, "invited");
+        assert_eq!(member.role, "member");
+        assert_eq!(member.invited_phone.as_deref(), Some("+3545551234"));
+        assert!(member.user_id.is_none());
+
+        // Owner row was materialized + the invited member → 2 visible.
+        let listed = store.list_subscription_members("sub1");
+        assert_eq!(listed.len(), 2);
+        assert_eq!(listed[0].role, "owner"); // owner sorts first
+
+        // The invitee accepts by logging in with the same phone.
+        let n = store
+            .accept_pending_subscription_invites("friend@x.is", Some("+354 555 1234"), now)
+            .expect("accept ok");
+        assert_eq!(n, 1);
+
+        let m = store
+            .list_subscription_members("sub1")
+            .into_iter()
+            .find(|m| m.id == member.id)
+            .unwrap();
+        assert_eq!(m.status, "active");
+        assert_eq!(m.user_id.as_deref(), Some("friend@x.is"));
+        // The friend can now use the subscription.
+        assert!(store.can_use_subscription("friend@x.is", "sub1"));
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn remove_marks_member_removed_and_revokes_access() {
+        let (store, dir) = temp_store("share-remove");
+        let now = parse_date("2026-06-26").unwrap();
+        seed_sub(&store, "sub1", "owner@x.is", now);
+        let member = store
+            .invite_subscription_member("owner@x.is", "sub1", "5551234", now)
+            .unwrap();
+        store
+            .accept_pending_subscription_invites("friend@x.is", Some("5551234"), now)
+            .unwrap();
+        assert!(store.can_use_subscription("friend@x.is", "sub1"));
+
+        store
+            .remove_subscription_member("owner@x.is", "sub1", &member.id, now)
+            .expect("remove ok");
+        // Hidden from the roster (owner row remains).
+        let listed = store.list_subscription_members("sub1");
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].role, "owner");
+        // Access revoked.
+        assert!(!store.can_use_subscription("friend@x.is", "sub1"));
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn daily_limit_is_shared_across_active_members() {
+        let (store, dir) = temp_store("share-limit");
+        let now = parse_date("2026-06-26").unwrap();
+        seed_sub(&store, "sub1", "owner@x.is", now); // daily_limit = 2
+        let member = store
+            .invite_subscription_member("owner@x.is", "sub1", "5551234", now)
+            .unwrap();
+        store
+            .accept_pending_subscription_invites("friend@x.is", Some("5551234"), now)
+            .unwrap();
+
+        let slot1 = parse_instant("2026-06-27T10:00:00Z").unwrap();
+        let slot2 = parse_instant("2026-06-27T11:00:00Z").unwrap();
+        let slot3 = parse_instant("2026-06-27T12:00:00Z").unwrap();
+
+        // Owner books one, friend books one — that exhausts the shared pool of 2.
+        store
+            .create_booking("owner@x.is", slot1, "subscription", Some("sub1"), None, now)
+            .expect("owner books 1st");
+        store
+            .create_booking(
+                "friend@x.is",
+                slot2,
+                "subscription",
+                Some("sub1"),
+                None,
+                now,
+            )
+            .expect("member books 2nd");
+        // Third booking by anyone is over the shared daily quota.
+        let err = store
+            .create_booking("owner@x.is", slot3, "subscription", Some("sub1"), None, now)
+            .unwrap_err();
+        assert_eq!(err, "Dagskvóti áskriftar fullnýttur");
+
+        // Usage summary reflects the shared draw-down.
+        let usage = store.shared_subscription_usage("sub1", slot1).unwrap();
+        assert_eq!((usage.limit, usage.used, usage.remaining), (2, 2, 0));
+        assert!(usage.exhausted);
+
+        let _ = member;
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn only_owner_can_invite_or_remove() {
+        let (store, dir) = temp_store("share-owneronly");
+        let now = parse_date("2026-06-26").unwrap();
+        seed_sub(&store, "sub1", "owner@x.is", now);
+
+        // A non-owner cannot invite.
+        let err = store
+            .invite_subscription_member("intruder@x.is", "sub1", "5551234", now)
+            .unwrap_err();
+        assert_eq!(err, "Aðeins eigandi getur deilt áskriftinni");
+
+        // Owner invites + the invitee accepts.
+        let member = store
+            .invite_subscription_member("owner@x.is", "sub1", "5551234", now)
+            .unwrap();
+        store
+            .accept_pending_subscription_invites("friend@x.is", Some("5551234"), now)
+            .unwrap();
+
+        // A non-owner (even the member) cannot remove.
+        let err = store
+            .remove_subscription_member("friend@x.is", "sub1", &member.id, now)
+            .unwrap_err();
+        assert_eq!(err, "Aðeins eigandi getur fjarlægt meðlimi");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn duplicate_open_invite_is_rejected() {
+        let (store, dir) = temp_store("share-dup");
+        let now = parse_date("2026-06-26").unwrap();
+        seed_sub(&store, "sub1", "owner@x.is", now);
+        store
+            .invite_subscription_member("owner@x.is", "sub1", "5551234", now)
+            .unwrap();
+        let err = store
+            .invite_subscription_member("owner@x.is", "sub1", "555 1234", now)
+            .unwrap_err();
+        assert_eq!(err, "Þessi aðili er þegar á áskriftinni eða með opið boð");
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn accept_skips_duplicate_active_membership() {
+        let (store, dir) = temp_store("share-dupaccept");
+        let now = parse_date("2026-06-26").unwrap();
+        seed_sub(&store, "sub1", "owner@x.is", now);
+        let first = store
+            .invite_subscription_member("owner@x.is", "sub1", "5551234", now)
+            .unwrap();
+        store
+            .accept_pending_subscription_invites("friend@x.is", Some("5551234"), now)
+            .unwrap();
+        // Owner re-invites the same phone after the first was... still active?
+        // The duplicate-open-invite guard blocks re-invite of an active phone,
+        // so simulate a stale invite directly to prove accept dedupes by user.
+        let stale = crate::booking::subscription_sharing::UserSubscriptionMember {
+            id: "usm-stale".into(),
+            user_subscription_id: "sub1".into(),
+            user_id: None,
+            role: "member".into(),
+            status: "invited".into(),
+            invited_phone: Some("+3549999999".into()),
+            invited_at: now,
+            accepted_at: None,
+            removed_at: None,
+        };
+        store.put_user_subscription_member(&stale).unwrap();
+        // friend already active for sub1 → accepting the stale invite must NOT
+        // create a second active row; the stale invite is dropped (removed).
+        let n = store
+            .accept_pending_subscription_invites("friend@x.is", Some("9999999"), now)
+            .unwrap();
+        assert_eq!(n, 0);
+        let active_for_friend = store
+            .list_subscription_members("sub1")
+            .into_iter()
+            .filter(|m| m.user_id.as_deref() == Some("friend@x.is") && m.status == "active")
+            .count();
+        assert_eq!(active_for_friend, 1);
+        let _ = first;
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn accessible_ids_include_owned_and_member_subs() {
+        let (store, dir) = temp_store("share-accessible");
+        let now = parse_date("2026-06-26").unwrap();
+        seed_sub(&store, "subA", "owner@x.is", now);
+        seed_sub(&store, "subB", "other@x.is", now);
+        store
+            .invite_subscription_member("other@x.is", "subB", "5551234", now)
+            .unwrap();
+        store
+            .accept_pending_subscription_invites("owner@x.is", Some("5551234"), now)
+            .unwrap();
+        let ids = store.accessible_user_subscription_ids("owner@x.is");
+        assert_eq!(ids, vec!["subA".to_string(), "subB".to_string()]);
         cleanup(&dir);
     }
 }

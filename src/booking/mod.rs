@@ -6,6 +6,8 @@
 //!   the module note on Iceland being UTC+0).
 //! - [`pricing`] — hour-based pricing rules + fixed-price override.
 //! - [`subscription`] — coverage + daily-limit accounting.
+//! - [`subscription_sharing`] — phone-based member invites, roles, and the
+//!   shared daily limit across all active members of a subscription.
 //! - [`validation`] — stateless request guards (past slot / outside window).
 //! - [`store`] — the B+tree-backed data layer: conflict-free booking creation,
 //!   package decrement, subscription quota, availability, cancellation.
@@ -13,6 +15,7 @@
 pub mod pricing;
 pub mod store;
 pub mod subscription;
+pub mod subscription_sharing;
 pub mod time;
 pub mod validation;
 
