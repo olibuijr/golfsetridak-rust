@@ -276,6 +276,14 @@ fn dispatch(
             auth,
         ),
 
+        // Subscription member sharing (Phase 3.5). Auth-gated; the owner of the
+        // subscription manages members. Routes:
+        //   GET/POST  /api/user-subscriptions/:id/members
+        //   DELETE    /api/user-subscriptions/:id/members/:memberId
+        p if p.starts_with("/api/user-subscriptions/") && p.contains("/members") => {
+            api_subscription_members(store, p, req, auth)
+        }
+
         // Home: the server-rendered booking calendar (replaces the placeholder).
         "/" => calendar_page(root, store, auth, req),
 
@@ -532,6 +540,156 @@ fn api_bookings(store: &BookingStore, req: &Request, auth: &auth::State) -> Resp
     }
 }
 
+/// Subscription-member sharing API. The `path` is the full request path under
+/// `/api/user-subscriptions/`. We parse the subscription id and (optionally) a
+/// member id out of it, then route by method:
+///
+/// * `GET    /api/user-subscriptions/:id/members`            — list members
+/// * `POST   /api/user-subscriptions/:id/members`            — invite by phone
+/// * `DELETE /api/user-subscriptions/:id/members/:memberId`  — remove a member
+///
+/// Every route is auth-gated (401 without a session). Invite/remove are
+/// owner-only — that guard lives in the store and surfaces as a 403/400 error.
+fn api_subscription_members(
+    store: &BookingStore,
+    path: &str,
+    req: &Request,
+    auth: &auth::State,
+) -> Response {
+    // `<id>/members` or `<id>/members/<memberId>`
+    let rest = slug_of(path, "/api/user-subscriptions/");
+    let Some((sub_id, tail)) = rest.split_once("/members") else {
+        return json(404, &error_value("not found"));
+    };
+    let sub_id = sub_id.trim_end_matches('/');
+    let member_id = tail.trim_start_matches('/').trim_end_matches('/');
+    if sub_id.is_empty() {
+        return json(404, &error_value("not found"));
+    }
+
+    let Some(user_id) = resolve_user_id(req, None, auth) else {
+        return json(401, &error_value("Unauthorized"));
+    };
+
+    match req.method {
+        Method::Get => {
+            // Any owner/active member may view the roster.
+            if !store.can_use_subscription(&user_id, sub_id) {
+                return json(
+                    403,
+                    &error_value("Áskrift fannst ekki eða er ekki tengd þessum notanda"),
+                );
+            }
+            let members = store.list_subscription_members(sub_id);
+            let usage = store
+                .shared_subscription_usage(sub_id, now_ms())
+                .map(|u| usage_value(&u))
+                .unwrap_or(Value::Null);
+            json(
+                200,
+                &Value::Object(vec![
+                    ("members".into(), members_array(&members)),
+                    ("usage".into(), usage),
+                ]),
+            )
+        }
+        Method::Post => {
+            let body = akurai_json::parse(&req.body_str()).unwrap_or(Value::Null);
+            let phone = body.get("phone").and_then(Value::as_str).unwrap_or("");
+            match store.invite_subscription_member(&user_id, sub_id, phone, now_ms()) {
+                Ok(member) => {
+                    let members = store.list_subscription_members(sub_id);
+                    json(
+                        201,
+                        &Value::Object(vec![
+                            ("member".into(), member_value(&member_to_view(&member))),
+                            ("members".into(), members_array(&members)),
+                        ]),
+                    )
+                }
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        Method::Delete => {
+            if member_id.is_empty() {
+                return json(400, &error_value("memberId is required"));
+            }
+            match store.remove_subscription_member(&user_id, sub_id, member_id, now_ms()) {
+                Ok(_member) => {
+                    let members = store.list_subscription_members(sub_id);
+                    json(
+                        200,
+                        &Value::Object(vec![("members".into(), members_array(&members))]),
+                    )
+                }
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        _ => json(405, &error_value("method not allowed")),
+    }
+}
+
+/// Serialize the shared daily-usage summary the calendar shows the group.
+fn usage_value(u: &booking::subscription_sharing::SharedUsageSummary) -> Value {
+    Value::Object(vec![
+        ("used".into(), Value::Int(u.used)),
+        ("limit".into(), Value::Int(u.limit)),
+        ("remaining".into(), Value::Int(u.remaining)),
+        ("exhausted".into(), Value::Bool(u.exhausted)),
+        ("label".into(), Value::Str(u.label.clone())),
+    ])
+}
+
+/// A JSON array of member views.
+fn members_array(members: &[booking::subscription_sharing::ListMemberView]) -> Value {
+    Value::Array(members.iter().map(member_value).collect())
+}
+
+/// Serialize one member view to JSON, masking the invited phone for display.
+fn member_value(m: &booking::subscription_sharing::ListMemberView) -> Value {
+    let opt_str = |o: &Option<String>| o.clone().map(Value::Str).unwrap_or(Value::Null);
+    let opt_int = |o: Option<i64>| o.map(Value::Int).unwrap_or(Value::Null);
+    let masked = m
+        .invited_phone
+        .as_deref()
+        .and_then(|p| booking::subscription_sharing::mask_subscription_phone(p).ok());
+    Value::Object(vec![
+        ("id".into(), Value::Str(m.id.clone())),
+        ("userId".into(), opt_str(&m.user_id)),
+        ("name".into(), opt_str(&m.name)),
+        ("phone".into(), opt_str(&m.phone)),
+        ("invitedPhone".into(), opt_str(&m.invited_phone)),
+        (
+            "invitedPhoneMasked".into(),
+            masked.map(Value::Str).unwrap_or(Value::Null),
+        ),
+        ("role".into(), Value::Str(m.role.clone())),
+        ("status".into(), Value::Str(m.status.clone())),
+        (
+            "statusLabel".into(),
+            Value::Str(booking::subscription_sharing::get_member_status_label(&m.status).into()),
+        ),
+        ("invitedAt".into(), Value::Int(m.invited_at)),
+        ("acceptedAt".into(), opt_int(m.accepted_at)),
+    ])
+}
+
+/// Adapt a stored member record into the view shape the API serializes.
+fn member_to_view(
+    m: &booking::subscription_sharing::UserSubscriptionMember,
+) -> booking::subscription_sharing::ListMemberView {
+    booking::subscription_sharing::ListMemberView {
+        id: m.id.clone(),
+        user_id: m.user_id.clone(),
+        name: None,
+        phone: None,
+        invited_phone: m.invited_phone.clone(),
+        role: m.role.clone(),
+        status: m.status.clone(),
+        invited_at: m.invited_at,
+        accepted_at: m.accepted_at,
+    }
+}
 /// Serialize availability into the `{ availability: [...] }` JSON the source
 /// route returns.
 fn availability_value(days: &[booking::DayAvailability]) -> Value {
