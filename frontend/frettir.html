@@ -1,15 +1,25 @@
 {% include "header" %}
+    <section class="page-hero">
+      <div class="page-hero-inner">
+        <p class="eyebrow">Fréttir</p>
+        <h1>Fréttir frá <span class="accent">Golfsetrinu</span></h1>
+        <p class="lede">Keppnir, opnunartímar, tækniuppfærslur og annað sem er að gerast hjá okkur.</p>
+      </div>
+    </section>
+
     <section class="content-section">
-      <p class="section-tag">Fréttir</p>
-      <h1>Fréttir frá Golfsetrinu</h1>
-      <ul class="news-list">
+      <div class="news-grid">
         {% for item in news %}
-        <li class="news-item">
-          <a class="news-link" href="/frettir/{{ item.slug }}">{{ item.title }}</a>
-          {% if item.date %}<p class="article-meta">{{ item.date }}</p>{% endif %}
-          {% if item.summary %}<p class="news-summary">{{ item.summary }}</p>{% endif %}
-        </li>
+        <article class="news-card">
+          <div class="news-accent"></div>
+          <div class="news-card-body">
+            {% if item.date %}<p class="news-date">{{ item.date }}</p>{% endif %}
+            <h2><a href="/frettir/{{ item.slug }}">{{ item.title }}</a></h2>
+            {% if item.summary %}<p>{{ item.summary }}</p>{% endif %}
+            <a class="news-more" href="/frettir/{{ item.slug }}">Lesa meira →</a>
+          </div>
+        </article>
         {% endfor %}
-      </ul>
+      </div>
     </section>
 {% include "footer" %}

@@ -1761,8 +1761,26 @@ fn legal(root: &Path, name: &str, auth: &auth::State, req: &Request) -> Response
 }
 
 fn about(root: &Path, auth: &auth::State, req: &Request) -> Response {
-    let path = content_dir(root).join("um-okkur.md");
-    article(root, &path, "", auth, req)
+    render(
+        root,
+        "um_okkur",
+        vec![
+            (
+                "page_title".into(),
+                Value::Str("Hvað er Golfsetrið?".into()),
+            ),
+            (
+                "meta_description".into(),
+                Value::Str(
+                    "Innandyra Trackman golfhermun á Lækjarvöllum 1C, Akureyri — opið 24/7, \
+                     aðgengilegt öllum."
+                        .into(),
+                ),
+            ),
+        ],
+        auth,
+        req,
+    )
 }
 
 // ---- account (mínar síður) page -------------------------------------------

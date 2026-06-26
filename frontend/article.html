@@ -1,9 +1,13 @@
 {% include "header" %}
+    <header class="article-hero">
+      <div class="article-hero-inner">
+        {% if section %}<p class="eyebrow">{{ section }}</p>{% endif %}
+        <h1>{{ title_text }}</h1>
+        {% if date %}<p class="article-meta">{{ date }}</p>{% endif %}
+        {% if last_updated %}<p class="article-meta">Síðast uppfært: {{ last_updated }}</p>{% endif %}
+      </div>
+    </header>
     <article class="prose">
-      {% if section %}<p class="section-tag">{{ section }}</p>{% endif %}
-      <h1>{{ title_text }}</h1>
-      {% if date %}<p class="article-meta">{{ date }}</p>{% endif %}
-      {% if last_updated %}<p class="article-meta">Síðast uppfært: {{ last_updated }}</p>{% endif %}
       {% if lead %}<p class="lead">{{ lead }}</p>{% endif %}
       {{{ content }}}
     </article>
