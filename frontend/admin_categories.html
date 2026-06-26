@@ -1,0 +1,70 @@
+{% include "header" %}
+    <section class="admin-head">
+      <div>
+        <span class="eyebrow">Stjórnborð</span>
+        <h1>Flokkar</h1>
+        <p class="lede">Stjórna vöruflokkum í versluninni.</p>
+      </div>
+      <a class="btn btn-secondary" href="/admin/vorur">Til baka í vörur</a>
+    </section>
+
+    <section class="admin-form-card">
+      <h2>Nýr flokkur</h2>
+      <form class="admin-form inline-form" onsubmit="createCategory(event)">
+        <label>Heiti<input name="name" required /></label>
+        <label>Slóð<input name="slug" /></label>
+        <label>Röðun<input name="position" type="number" value="0" /></label>
+        <button class="btn btn-primary" type="submit">Vista</button>
+      </form>
+    </section>
+
+    <section class="admin-list">
+      {% for category in categories %}
+      <article class="admin-list-row">
+        <form class="admin-form inline-form" onsubmit="updateCategory(event, '{{ category.id }}')">
+          <label>Heiti<input name="name" value="{{ category.name }}" required /></label>
+          <label>Slóð<input name="slug" value="{{ category.slug }}" required /></label>
+          <label>Röðun<input name="position" type="number" value="{{ category.position }}" /></label>
+          <label class="checkbox-row"><input name="active" type="checkbox" {% if category.active %}checked{% endif %} /> Virkur</label>
+          <button class="btn btn-primary" type="submit">Vista</button>
+          <button class="btn btn-secondary" type="button" onclick="deleteCategory('{{ category.id }}')">Eyða</button>
+        </form>
+      </article>
+      {% endfor %}
+    </section>
+
+    <script>
+      function categoryPayload(form) {
+        const fd = new FormData(form);
+        return {
+          name: String(fd.get("name") || ""),
+          slug: String(fd.get("slug") || ""),
+          position: Number(fd.get("position") || 0),
+          active: fd.get("active") === "on"
+        };
+      }
+      async function createCategory(event) {
+        event.preventDefault();
+        await fetch("/api/admin/shop/categories", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(categoryPayload(event.currentTarget))
+        });
+        location.reload();
+      }
+      async function updateCategory(event, id) {
+        event.preventDefault();
+        await fetch("/api/admin/shop/categories/" + encodeURIComponent(id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(categoryPayload(event.currentTarget))
+        });
+        location.reload();
+      }
+      async function deleteCategory(id) {
+        if (!confirm("Eyða þessum flokki?")) return;
+        await fetch("/api/admin/shop/categories/" + encodeURIComponent(id), { method: "DELETE" });
+        location.reload();
+      }
+    </script>
+{% include "footer" %}

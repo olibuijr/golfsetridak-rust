@@ -1,0 +1,59 @@
+{% include "header" %}
+    <section class="hero text-center">
+      <span class="eyebrow">Verslun</span>
+      <h1>Karfan</h1>
+      <p class="lede">Yfirlit yfir vörur í körfunni. Greiðsla kemur í næsta áfanga.</p>
+    </section>
+
+    <section class="cart-shell">
+      {% if has_items %}
+      <div class="cart-lines">
+        {% for item in cart.items %}
+        <article class="cart-line" data-item-id="{{ item.id }}">
+          <div>
+            <p class="cart-line-type">{{ item.type }}</p>
+            <h2>{{ item.nameSnapshot }}</h2>
+            <p>{{ item.unitPriceLabel }} × {{ item.quantity }}</p>
+          </div>
+          <div class="cart-line-actions">
+            <strong>{{ item.lineTotalLabel }}</strong>
+            <label>
+              Magn
+              <input type="number" min="0" value="{{ item.quantity }}" onchange="setCartQuantity('{{ item.id }}', this.value)" />
+            </label>
+            <button class="btn btn-secondary" type="button" onclick="removeCartItem('{{ item.id }}')">Eyða</button>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+
+      <aside class="cart-summary">
+        <h2>Samtals</h2>
+        <p class="cart-total">{{ subtotal_label }}</p>
+        <p class="muted">Karfan geymir vörur og samtölur. Greiðsla og afhending eru ekki virk í þessum áfanga.</p>
+        <a class="btn btn-primary" href="/verslun">Halda áfram að versla</a>
+      </aside>
+      {% else %}
+      <div class="empty-state">
+        <h2>Karfan er tóm</h2>
+        <p>Bættu vöru í körfu úr versluninni.</p>
+        <a class="btn btn-primary" href="/verslun">Fara í verslun</a>
+      </div>
+      {% endif %}
+    </section>
+
+    <script>
+      async function setCartQuantity(id, quantity) {
+        await fetch("/api/cart/items/" + encodeURIComponent(id), {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ quantity: Number(quantity) })
+        });
+        location.reload();
+      }
+      async function removeCartItem(id) {
+        await fetch("/api/cart/items/" + encodeURIComponent(id), { method: "DELETE" });
+        location.reload();
+      }
+    </script>
+{% include "footer" %}

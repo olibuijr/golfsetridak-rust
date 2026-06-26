@@ -29,6 +29,36 @@
       "template": "placeholder",
       "data": "data/admin.json",
       "title": "Stjórnborð — Golfsetrið Akureyri"
+    },
+    {
+      "path": "/my/verslun",
+      "template": "shop",
+      "title": "Verslun — Golfsetrið Akureyri"
+    },
+    {
+      "path": "/my/verslun/karfa",
+      "template": "cart",
+      "title": "Karfan — Golfsetrið Akureyri"
+    },
+    {
+      "path": "/admin/vorur",
+      "template": "admin_products",
+      "title": "Vörur — Stjórnborð"
+    },
+    {
+      "path": "/admin/vorur/flokkar",
+      "template": "admin_categories",
+      "title": "Flokkar — Stjórnborð"
+    },
+    {
+      "path": "/admin/vorur/nytt",
+      "template": "admin_product_form",
+      "title": "Ný vara — Stjórnborð"
+    },
+    {
+      "path": "/admin/vorur/:id",
+      "template": "admin_product_form",
+      "title": "Breyta vöru — Stjórnborð"
     }
   ]
 }
