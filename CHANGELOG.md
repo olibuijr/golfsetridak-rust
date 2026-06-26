@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/); SemVer.
 
 ## [Unreleased]
 
+## [0.0.2] - 2026-06-26
+
 ### Added
 - **Full port of golfsetridak.is** from Next.js + SQLite to pure Rust on the
   AkurAI-Framework (own binary on the akurai-* crates, zero external runtime deps):
