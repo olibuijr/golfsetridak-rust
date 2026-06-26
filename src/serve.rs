@@ -14,9 +14,11 @@
 //! placeholders — see PORT.md.
 
 use crate::auth;
-use crate::booking::{self, Store};
+use crate::booking::{self, Store as BookingStore};
+use crate::cart::{self, Store as CartStore};
 use crate::content;
 use crate::mime;
+use crate::shop::{self, Store as ShopStore};
 use akurai_http::form::{field, parse_urlencoded};
 use akurai_http::{
     Method, MiddlewareStack, Reply, Request, RequestLogger, Response, SecurityHeaders, Server,
@@ -61,7 +63,9 @@ pub fn run(cfg: Config) -> io::Result<()> {
     // The booking database lives alongside the app dir (sibling of `frontend/`),
     // in `data/booking/`. Gitignored — never committed (see .gitignore).
     let data_dir = data_dir(&root);
-    let store = Arc::new(Store::open(&data_dir)?);
+    let store = Arc::new(BookingStore::open(&data_dir)?);
+    let shop_store = Arc::new(ShopStore::open(&shop_data_dir(&root))?);
+    let cart_store = Arc::new(CartStore::open(&cart_data_dir(&root))?);
 
     // Auth stores live under data/auth/ (sibling of data/booking/).
     let auth_data = data_dir
@@ -73,6 +77,8 @@ pub fn run(cfg: Config) -> io::Result<()> {
     println!("Golfsetrið Akureyri — golfsetridak v{VERSION} (on AkurAI-Framework)");
     println!("  serving {}", root.display());
     println!("  booking db: {}", data_dir.display());
+    println!("  shop db: {}", shop_data_dir(&root).display());
+    println!("  cart db: {}", cart_data_dir(&root).display());
     println!("  → http://{local}");
     println!("  utilities.css: served at /utilities.css");
 
@@ -83,7 +89,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
         .push(Timing);
 
     server.run_with(middleware, move |req: &Request| {
-        dispatch_reply(&root, &store, &auth, req)
+        dispatch_reply(&root, &store, &shop_store, &cart_store, &auth, req)
     })
 }
 
@@ -104,12 +110,26 @@ pub fn data_dir(frontend_dir: &Path) -> PathBuf {
         .unwrap_or_else(|| frontend_dir.join("data/booking"))
 }
 
+fn shop_data_dir(frontend_dir: &Path) -> PathBuf {
+    frontend_dir
+        .parent()
+        .map(|p| p.join("data/shop"))
+        .unwrap_or_else(|| frontend_dir.join("data/shop"))
+}
+
+fn cart_data_dir(frontend_dir: &Path) -> PathBuf {
+    frontend_dir
+        .parent()
+        .map(|p| p.join("data/cart"))
+        .unwrap_or_else(|| frontend_dir.join("data/cart"))
+}
+
 /// Seed a demo user, a klippikort package grant (`slots` slots) and an active
 /// subscription, so package/subscription bookings can be exercised before the
 /// purchase/admin flows (other agents' scope) land. Mirrors the source's
 /// `seed.ts` / `seed-demo.ts`. Idempotent: re-running overwrites the same ids.
 pub fn seed_demo(frontend_dir: &Path, slots: i64) -> io::Result<()> {
-    let store = Store::open(&data_dir(frontend_dir))?;
+    let store = BookingStore::open(&data_dir(frontend_dir))?;
     let now = now_ms();
     let today = booking::time::day_start(now);
 
@@ -146,17 +166,31 @@ pub fn seed_demo(frontend_dir: &Path, slots: i64) -> io::Result<()> {
 }
 
 /// Top-level reply dispatcher — handles auth routes before content routes.
-fn dispatch_reply(root: &Path, store: &Store, auth: &auth::State, req: &Request) -> Reply {
+fn dispatch_reply(
+    root: &Path,
+    store: &BookingStore,
+    shop_store: &ShopStore,
+    cart_store: &CartStore,
+    auth: &auth::State,
+    req: &Request,
+) -> Reply {
     let path = req.path.as_str();
     match path {
         "/login" => auth::login(auth, root, req, store),
         "/logout" => auth::logout(auth, req),
-        _ => Reply::Response(dispatch(root, store, auth, req)),
+        _ => Reply::Response(dispatch(root, store, shop_store, cart_store, auth, req)),
     }
 }
 
 /// Route one request to a buffered response. `root` is the `frontend/` dir.
-fn dispatch(root: &Path, store: &Store, auth: &auth::State, req: &Request) -> Response {
+fn dispatch(
+    root: &Path,
+    store: &BookingStore,
+    shop_store: &ShopStore,
+    cart_store: &CartStore,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
     let path = req.path.as_str();
     match path {
         "/utilities.css" => utilities(root),
@@ -167,6 +201,51 @@ fn dispatch(root: &Path, store: &Store, auth: &auth::State, req: &Request) -> Re
         "/api/slot-price" => api_slot_price(store, req, auth),
         "/api/book" => api_book(store, req, auth),
         "/api/bookings" => api_bookings(store, req, auth),
+        "/api/shop/products" => api_shop_products(shop_store, req),
+        "/api/shop/categories" => api_shop_categories(shop_store, req),
+        "/api/admin/shop/products" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_admin_products(shop_store, req, None)
+        }
+        "/api/admin/shop/categories" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_admin_categories(shop_store, req, None)
+        }
+        "/api/cart" => api_cart(cart_store, req, auth),
+        "/api/cart/items" => api_cart_items(store, shop_store, cart_store, req, None, auth),
+        "/api/cart/items/bulk" => api_cart_items_bulk(store, shop_store, cart_store, req, auth),
+        p if p.starts_with("/api/admin/shop/products/") => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_admin_products(
+                shop_store,
+                req,
+                Some(slug_of(p, "/api/admin/shop/products/")),
+            )
+        }
+        p if p.starts_with("/api/admin/shop/categories/") => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_admin_categories(
+                shop_store,
+                req,
+                Some(slug_of(p, "/api/admin/shop/categories/")),
+            )
+        }
+        p if p.starts_with("/api/cart/items/") => api_cart_items(
+            store,
+            shop_store,
+            cart_store,
+            req,
+            Some(slug_of(p, "/api/cart/items/")),
+            auth,
+        ),
 
         // Home: the server-rendered booking calendar (replaces the placeholder).
         "/" => calendar_page(root, store, auth, req),
@@ -182,6 +261,39 @@ fn dispatch(root: &Path, store: &Store, auth: &auth::State, req: &Request) -> Re
         "/personuvernd" => legal(root, "personuvernd", auth, req),
         "/skilmalar" => legal(root, "skilmalar", auth, req),
         "/um-okkur" => about(root, auth, req),
+        "/verslun" => shop_page(root, shop_store, auth, req),
+        "/my/verslun" => shop_page(root, shop_store, auth, req),
+        "/my/verslun/karfa" => cart_page(root, cart_store, req, auth),
+        "/admin/vorur" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            admin_products_page(root, shop_store, auth, req)
+        }
+        "/admin/vorur/flokkar" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            admin_categories_page(root, shop_store, auth, req)
+        }
+        "/admin/vorur/nytt" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            admin_product_form_page(root, shop_store, None, auth, req)
+        }
+        p if p.starts_with("/admin/vorur/") => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            admin_product_form_page(
+                root,
+                shop_store,
+                Some(slug_of(p, "/admin/vorur/")),
+                auth,
+                req,
+            )
+        }
 
         // Unknown API routes are a hard JSON 404, never an HTML fallback.
         p if p.starts_with("/api/") => json(404, &error_value("not found")),
@@ -214,7 +326,7 @@ fn resolve_user_id(req: &Request, _body: Option<&Value>, auth: &auth::State) -> 
 }
 
 /// `GET /api/availability?date=YYYY-MM-DD&days=N&userId=X` — slots + prices.
-fn api_availability(store: &Store, req: &Request, auth: &auth::State) -> Response {
+fn api_availability(store: &BookingStore, req: &Request, auth: &auth::State) -> Response {
     if req.method != Method::Get {
         return json(405, &error_value("method not allowed"));
     }
@@ -238,7 +350,7 @@ fn api_availability(store: &Store, req: &Request, auth: &auth::State) -> Respons
 }
 
 /// `GET /api/slot-price?hour=H&userId=X` — the effective price for an hour.
-fn api_slot_price(store: &Store, req: &Request, auth: &auth::State) -> Response {
+fn api_slot_price(store: &BookingStore, req: &Request, auth: &auth::State) -> Response {
     if req.method != Method::Get {
         return json(405, &error_value("method not allowed"));
     }
@@ -257,7 +369,7 @@ fn api_slot_price(store: &Store, req: &Request, auth: &auth::State) -> Response 
 
 /// `POST /api/book` — create a booking. Body: `{ userId, slotTime, paymentType,
 /// userPackageId?, userSubscriptionId?, notes? }`.
-fn api_book(store: &Store, req: &Request, auth: &auth::State) -> Response {
+fn api_book(store: &BookingStore, req: &Request, auth: &auth::State) -> Response {
     if req.method != Method::Post {
         return json(405, &error_value("method not allowed"));
     }
@@ -312,7 +424,7 @@ fn api_book(store: &Store, req: &Request, auth: &auth::State) -> Response {
 
 /// `GET /api/bookings?userId=X` lists a user's bookings;
 /// `DELETE /api/bookings?id=B&userId=X` cancels one.
-fn api_bookings(store: &Store, req: &Request, auth: &auth::State) -> Response {
+fn api_bookings(store: &BookingStore, req: &Request, auth: &auth::State) -> Response {
     let q = query_pairs(req);
     match req.method {
         Method::Get => {
@@ -398,6 +510,574 @@ fn booking_value(b: &booking::Booking) -> Value {
     ])
 }
 
+// ---- shop + cart API ------------------------------------------------------
+
+fn api_shop_products(store: &ShopStore, req: &Request) -> Response {
+    if req.method != Method::Get {
+        return json(405, &error_value("method not allowed"));
+    }
+    json(
+        200,
+        &Value::Object(vec![(
+            "products".into(),
+            Value::Array(product_values(store, true)),
+        )]),
+    )
+}
+
+fn api_shop_categories(store: &ShopStore, req: &Request) -> Response {
+    if req.method != Method::Get {
+        return json(405, &error_value("method not allowed"));
+    }
+    let rows = store
+        .list_categories(false)
+        .iter()
+        .map(shop::category_value)
+        .collect();
+    json(
+        200,
+        &Value::Object(vec![("categories".into(), Value::Array(rows))]),
+    )
+}
+
+fn api_admin_products(store: &ShopStore, req: &Request, path_id: Option<&str>) -> Response {
+    match req.method {
+        Method::Get => {
+            if let Some(id) = path_id {
+                return match store.product(id) {
+                    Some(product) => json(
+                        200,
+                        &Value::Object(vec![(
+                            "product".into(),
+                            shop::product_value(
+                                &product,
+                                store.category_name(product.category_id.as_deref()),
+                            ),
+                        )]),
+                    ),
+                    None => json(404, &error_value("not found")),
+                };
+            }
+            json(
+                200,
+                &Value::Object(vec![(
+                    "products".into(),
+                    Value::Array(product_values(store, false)),
+                )]),
+            )
+        }
+        Method::Post => {
+            let body = match body_json(req) {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            let Some(name) = str_field(&body, "name") else {
+                return json(400, &error_value("name required"));
+            };
+            let Some(price) = int_field(&body, "price") else {
+                return json(400, &error_value("valid price required"));
+            };
+            let now = now_ms();
+            match store.create_product(
+                shop::ProductDraft {
+                    name,
+                    description: str_field(&body, "description"),
+                    price,
+                    image_url: str_field(&body, "imageUrl")
+                        .or_else(|| str_field(&body, "image_url")),
+                    category_id: str_field(&body, "categoryId")
+                        .or_else(|| str_field(&body, "category_id")),
+                    active: bool_field(&body, "active").unwrap_or(true),
+                },
+                now,
+            ) {
+                Ok(product) => json(
+                    201,
+                    &Value::Object(vec![(
+                        "product".into(),
+                        shop::product_value(
+                            &product,
+                            store.category_name(product.category_id.as_deref()),
+                        ),
+                    )]),
+                ),
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        Method::Put => {
+            let body = match body_json(req) {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            let query_id = query_id(req);
+            let Some(id) = path_id
+                .or_else(|| str_field(&body, "id"))
+                .or(query_id.as_deref())
+            else {
+                return json(400, &error_value("id required"));
+            };
+            let update = shop::ProductUpdate {
+                name: str_field(&body, "name").map(str::to_string),
+                description: field_present(&body, "description")
+                    .then(|| str_field(&body, "description").map(str::to_string)),
+                price: int_field(&body, "price"),
+                image_url: field_present(&body, "imageUrl")
+                    .then(|| str_field(&body, "imageUrl").map(str::to_string)),
+                category_id: field_present(&body, "categoryId")
+                    .then(|| str_field(&body, "categoryId").map(str::to_string)),
+                active: bool_field(&body, "active"),
+                position: int_field(&body, "position"),
+            };
+            match store.update_product(id, update, now_ms()) {
+                Ok(product) => json(
+                    200,
+                    &Value::Object(vec![(
+                        "product".into(),
+                        shop::product_value(
+                            &product,
+                            store.category_name(product.category_id.as_deref()),
+                        ),
+                    )]),
+                ),
+                Err(e) if e == "not found" => json(404, &error_value(&e)),
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        Method::Delete => {
+            let body = body_json(req).ok();
+            let query_id = query_id(req);
+            let id = path_id
+                .or_else(|| body.as_ref().and_then(|b| str_field(b, "id")))
+                .or(query_id.as_deref());
+            let Some(id) = id else {
+                return json(400, &error_value("id required"));
+            };
+            match store.delete_product(id) {
+                Ok(()) => json(200, &Value::Object(vec![("ok".into(), Value::Bool(true))])),
+                Err(e) if e == "not found" => json(404, &error_value(&e)),
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        _ => json(405, &error_value("method not allowed")),
+    }
+}
+
+fn api_admin_categories(store: &ShopStore, req: &Request, path_id: Option<&str>) -> Response {
+    match req.method {
+        Method::Get => {
+            if let Some(id) = path_id {
+                return match store.category(id) {
+                    Some(category) => json(
+                        200,
+                        &Value::Object(vec![("category".into(), shop::category_value(&category))]),
+                    ),
+                    None => json(404, &error_value("not found")),
+                };
+            }
+            let rows = store
+                .list_categories(false)
+                .iter()
+                .map(shop::category_value)
+                .collect();
+            json(
+                200,
+                &Value::Object(vec![("categories".into(), Value::Array(rows))]),
+            )
+        }
+        Method::Post => {
+            let body = match body_json(req) {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            let Some(name) = str_field(&body, "name") else {
+                return json(400, &error_value("name required"));
+            };
+            match store.create_category(
+                name,
+                str_field(&body, "slug"),
+                str_field(&body, "description"),
+                int_field(&body, "position").unwrap_or(0),
+                bool_field(&body, "active").unwrap_or(true),
+                now_ms(),
+            ) {
+                Ok(category) => json(
+                    201,
+                    &Value::Object(vec![("category".into(), shop::category_value(&category))]),
+                ),
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        Method::Put => {
+            let body = match body_json(req) {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            let query_id = query_id(req);
+            let Some(id) = path_id
+                .or_else(|| str_field(&body, "id"))
+                .or(query_id.as_deref())
+            else {
+                return json(400, &error_value("id required"));
+            };
+            let update = shop::CategoryUpdate {
+                name: str_field(&body, "name").map(str::to_string),
+                slug: str_field(&body, "slug").map(str::to_string),
+                description: field_present(&body, "description")
+                    .then(|| str_field(&body, "description").map(str::to_string)),
+                position: int_field(&body, "position"),
+                active: bool_field(&body, "active"),
+            };
+            match store.update_category(id, update, now_ms()) {
+                Ok(category) => json(
+                    200,
+                    &Value::Object(vec![("category".into(), shop::category_value(&category))]),
+                ),
+                Err(e) if e == "not found" => json(404, &error_value(&e)),
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        Method::Delete => {
+            let body = body_json(req).ok();
+            let query_id = query_id(req);
+            let id = path_id
+                .or_else(|| body.as_ref().and_then(|b| str_field(b, "id")))
+                .or(query_id.as_deref());
+            let Some(id) = id else {
+                return json(400, &error_value("id required"));
+            };
+            match store.delete_category(id) {
+                Ok(()) => json(200, &Value::Object(vec![("ok".into(), Value::Bool(true))])),
+                Err(e) if e == "not found" => json(404, &error_value(&e)),
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        _ => json(405, &error_value("method not allowed")),
+    }
+}
+
+fn api_cart(store: &CartStore, req: &Request, auth: &auth::State) -> Response {
+    if req.method != Method::Get {
+        return json(405, &error_value("method not allowed"));
+    }
+    let user = auth.current_user(req);
+    let effective_id = user
+        .as_ref()
+        .map(|u| user_cart_id(&u.email))
+        .or_else(|| cart::cookie_cart_id(req));
+    match store.get_or_create_open(effective_id.as_deref(), now_ms()) {
+        Ok((summary, created)) => {
+            let set = created && user.is_none();
+            cart_json(200, &summary, set)
+        }
+        Err(e) => json(500, &error_value(&e)),
+    }
+}
+
+fn api_cart_items(
+    booking_store: &BookingStore,
+    shop_store: &ShopStore,
+    cart_store: &CartStore,
+    req: &Request,
+    path_id: Option<&str>,
+    auth: &auth::State,
+) -> Response {
+    let user = auth.current_user(req);
+    let effective_id = user
+        .as_ref()
+        .map(|u| user_cart_id(&u.email))
+        .or_else(|| cart::cookie_cart_id(req));
+    let (summary, created) = match cart_store.get_or_create_open(effective_id.as_deref(), now_ms())
+    {
+        Ok(v) => v,
+        Err(e) => return json(500, &error_value(&e)),
+    };
+    let set_cookie = created && user.is_none();
+    match req.method {
+        Method::Post => {
+            let body = match body_json(req) {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            let item = match resolve_cart_item(booking_store, shop_store, &body, now_ms()) {
+                Ok(item) => item,
+                Err((status, e)) => return json(status, &error_value(&e)),
+            };
+            match cart_store.add_item(&summary.id, item, now_ms()) {
+                Ok(next) => cart_json(201, &next, set_cookie),
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        Method::Put | Method::Patch => {
+            let body = match body_json(req) {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            let query_id = query_id(req);
+            let id = path_id
+                .or_else(|| str_field(&body, "id"))
+                .or(query_id.as_deref());
+            let Some(id) = id else {
+                return json(400, &error_value("id required"));
+            };
+            let Some(quantity) = int_field(&body, "quantity") else {
+                return json(400, &error_value("quantity must be a non-negative number"));
+            };
+            match cart_store.update_quantity(&summary.id, id, quantity, now_ms()) {
+                Ok(next) => cart_json(200, &next, set_cookie),
+                Err(e) if e == "item not found" => json(404, &error_value(&e)),
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        Method::Delete => {
+            let body = body_json(req).ok();
+            let query_id = query_id(req);
+            let id = path_id
+                .or_else(|| body.as_ref().and_then(|b| str_field(b, "id")))
+                .or(query_id.as_deref());
+            let Some(id) = id else {
+                return json(400, &error_value("id required"));
+            };
+            match cart_store.remove_item(&summary.id, id, now_ms()) {
+                Ok(next) => cart_json(200, &next, set_cookie),
+                Err(e) => json(400, &error_value(&e)),
+            }
+        }
+        _ => json(405, &error_value("method not allowed")),
+    }
+}
+
+fn api_cart_items_bulk(
+    booking_store: &BookingStore,
+    shop_store: &ShopStore,
+    cart_store: &CartStore,
+    req: &Request,
+    auth: &auth::State,
+) -> Response {
+    if req.method != Method::Post {
+        return json(405, &error_value("method not allowed"));
+    }
+    let body = match body_json(req) {
+        Ok(v) => v,
+        Err(r) => return r,
+    };
+    let Some(Value::Array(items)) = body.get("items") else {
+        return json(400, &error_value("items[] required"));
+    };
+    if items.is_empty() {
+        return json(400, &error_value("items[] required"));
+    }
+    if items.len() > 50 {
+        return json(400, &error_value("too many items"));
+    }
+    let user = auth.current_user(req);
+    let effective_id = user
+        .as_ref()
+        .map(|u| user_cart_id(&u.email))
+        .or_else(|| cart::cookie_cart_id(req));
+    let (mut summary, created) =
+        match cart_store.get_or_create_open(effective_id.as_deref(), now_ms()) {
+            Ok(v) => v,
+            Err(e) => return json(500, &error_value(&e)),
+        };
+    for raw in items {
+        if let Ok(item) = resolve_cart_item(booking_store, shop_store, raw, now_ms()) {
+            match cart_store.add_item(&summary.id, item, now_ms()) {
+                Ok(next) => summary = next,
+                Err(_) => continue,
+            }
+        }
+    }
+    cart_json(201, &summary, created && user.is_none())
+}
+
+fn resolve_cart_item(
+    booking_store: &BookingStore,
+    shop_store: &ShopStore,
+    body: &Value,
+    now: i64,
+) -> Result<cart::ResolvedItem, (u16, String)> {
+    let item_type = str_field(body, "type").ok_or((400, "type required".to_string()))?;
+    match item_type {
+        "product" => {
+            let ref_id = str_field(body, "refId").ok_or((400, "refId required".to_string()))?;
+            let product = shop_store
+                .product(ref_id)
+                .filter(|p| p.active)
+                .ok_or((404, "product not found".to_string()))?;
+            Ok(cart::ResolvedItem {
+                item_type: "product".into(),
+                ref_id: product.id,
+                name_snapshot: product.name,
+                unit_price: product.price,
+                quantity: int_field(body, "quantity").unwrap_or(1).max(1),
+                metadata: Value::Object(vec![]),
+            })
+        }
+        "gift_card" => resolve_gift_card_item(body),
+        "slot" => resolve_slot_item(booking_store, body, now),
+        "package" | "subscription" => resolve_snapshot_item(body, item_type),
+        _ => Err((400, "invalid type".into())),
+    }
+}
+
+fn resolve_gift_card_item(body: &Value) -> Result<cart::ResolvedItem, (u16, String)> {
+    const MIN: i64 = 1000;
+    const MAX: i64 = 500_000;
+    let amount = int_field(body, "amount").ok_or((
+        400,
+        "Upphæð gjafabréfs verður að vera á bilinu 1.000-500.000 kr.".to_string(),
+    ))?;
+    if !(MIN..=MAX).contains(&amount) {
+        return Err((
+            400,
+            "Upphæð gjafabréfs verður að vera á bilinu 1.000-500.000 kr.".into(),
+        ));
+    }
+    let mut meta = vec![("amount".into(), Value::Int(amount))];
+    for key in ["recipientName", "recipientEmail", "message", "deliveryAt"] {
+        if let Some(value) = str_field(body, key).filter(|s| !s.trim().is_empty()) {
+            meta.push((key.into(), Value::Str(value.trim().to_string())));
+        }
+    }
+    Ok(cart::ResolvedItem {
+        item_type: "gift_card".into(),
+        ref_id: format!("gift-{}", now_ms()),
+        name_snapshot: format!("Gjafabréf · {}", shop::format_isk(amount)),
+        unit_price: amount,
+        quantity: 1,
+        metadata: Value::Object(meta),
+    })
+}
+
+fn resolve_slot_item(
+    booking_store: &BookingStore,
+    body: &Value,
+    now: i64,
+) -> Result<cart::ResolvedItem, (u16, String)> {
+    let ref_id = str_field(body, "refId").ok_or((400, "refId required".to_string()))?;
+    let slot_ms = booking::time::parse_instant(ref_id).ok_or((400, "invalid slot".to_string()))?;
+    if slot_ms < now {
+        return Err((400, "slot is in the past".into()));
+    }
+    let day = booking::time::day_start(slot_ms);
+    let available = booking_store
+        .availability(day, 1, None, now)
+        .iter()
+        .flat_map(|d| d.slots.iter())
+        .find(|s| s.starts_at == ref_id)
+        .map(|s| s.status == "available")
+        .unwrap_or(false);
+    if !available {
+        return Err((409, "slot already booked".into()));
+    }
+    let hour = booking::time::hour_of(slot_ms);
+    Ok(cart::ResolvedItem {
+        item_type: "slot".into(),
+        ref_id: ref_id.to_string(),
+        name_snapshot: format!("{ref_id} kl. {hour:02}:00"),
+        unit_price: booking_store.slot_price(hour, None),
+        quantity: 1,
+        metadata: Value::Object(vec![
+            ("startsAt".into(), Value::Str(ref_id.to_string())),
+            ("hour".into(), Value::Int(hour)),
+        ]),
+    })
+}
+
+fn resolve_snapshot_item(
+    body: &Value,
+    item_type: &str,
+) -> Result<cart::ResolvedItem, (u16, String)> {
+    let ref_id = str_field(body, "refId").ok_or((400, "refId required".to_string()))?;
+    let name = str_field(body, "nameSnapshot")
+        .or_else(|| str_field(body, "name"))
+        .ok_or((400, "nameSnapshot required".to_string()))?;
+    let unit_price = int_field(body, "unitPrice")
+        .or_else(|| int_field(body, "price"))
+        .ok_or((400, "unitPrice required".to_string()))?;
+    Ok(cart::ResolvedItem {
+        item_type: item_type.to_string(),
+        ref_id: ref_id.to_string(),
+        name_snapshot: name.trim().to_string(),
+        unit_price,
+        quantity: if item_type == "subscription" {
+            1
+        } else {
+            int_field(body, "quantity").unwrap_or(1).max(1)
+        },
+        metadata: body
+            .get("metadata")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(vec![])),
+    })
+}
+
+/// Derive a stable, valid cart ID for an authenticated user.
+/// Uses the email with non-alphanumeric chars mapped to dashes so it satisfies
+/// `cart::valid_cart_id` (alphanumeric + dash, max 96 chars).
+fn user_cart_id(email: &str) -> String {
+    let slug: String = email
+        .chars()
+        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    format!("u-{}", &slug[..slug.len().min(90)])
+}
+
+fn cart_json(status: u16, summary: &cart::CartSummary, set_cookie: bool) -> Response {
+    let resp = json(
+        status,
+        &Value::Object(vec![("cart".into(), cart::cart_value(summary))]),
+    );
+    if set_cookie {
+        resp.with_header("Set-Cookie", &cart::cookie_header(&summary.id))
+    } else {
+        resp
+    }
+}
+
+fn product_values(store: &ShopStore, active_only: bool) -> Vec<Value> {
+    store
+        .list_products(active_only)
+        .iter()
+        .map(|p| shop::product_value(p, store.category_name(p.category_id.as_deref())))
+        .collect()
+}
+
+fn body_json(req: &Request) -> Result<Value, Response> {
+    akurai_json::parse(&req.body_str()).map_err(|_| json(400, &error_value("invalid JSON body")))
+}
+
+fn str_field<'a>(body: &'a Value, key: &str) -> Option<&'a str> {
+    body.get(key)
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+}
+
+fn int_field(body: &Value, key: &str) -> Option<i64> {
+    match body.get(key)? {
+        Value::Int(n) => Some(*n),
+        Value::Float(n) if n.is_finite() => Some(n.floor() as i64),
+        _ => None,
+    }
+}
+
+fn bool_field(body: &Value, key: &str) -> Option<bool> {
+    body.get(key).and_then(Value::as_bool)
+}
+
+fn field_present(body: &Value, key: &str) -> bool {
+    matches!(body, Value::Object(pairs) if pairs.iter().any(|(k, _)| k == key))
+}
+
+fn query_id(req: &Request) -> Option<String> {
+    field(&query_pairs(req), "id")
+        .filter(|s| !s.is_empty())
+        .map(str::to_string)
+}
+
 // ---- content pages --------------------------------------------------------
 
 fn news_list(root: &Path, auth: &auth::State, req: &Request) -> Response {
@@ -456,6 +1136,190 @@ fn about(root: &Path, auth: &auth::State, req: &Request) -> Response {
     article(root, &path, "", auth, req)
 }
 
+// ---- shop + cart pages ----------------------------------------------------
+
+fn shop_page(root: &Path, store: &ShopStore, auth: &auth::State, req: &Request) -> Response {
+    render(
+        root,
+        "shop",
+        vec![
+            (
+                "page_title".into(),
+                Value::Str("Verslun — Golfsetrið Akureyri".into()),
+            ),
+            ("products".into(), Value::Array(product_values(store, true))),
+            (
+                "categories".into(),
+                Value::Array(
+                    store
+                        .list_categories(false)
+                        .iter()
+                        .map(shop::category_value)
+                        .collect(),
+                ),
+            ),
+        ],
+        auth,
+        req,
+    )
+}
+
+fn cart_page(root: &Path, store: &CartStore, req: &Request, auth: &auth::State) -> Response {
+    let user = auth.current_user(req);
+    let effective_id = user
+        .as_ref()
+        .map(|u| user_cart_id(&u.email))
+        .or_else(|| cart::cookie_cart_id(req));
+    match store.get_or_create_open(effective_id.as_deref(), now_ms()) {
+        Ok((summary, created)) => {
+            let mut resp = render(
+                root,
+                "cart",
+                vec![
+                    (
+                        "page_title".into(),
+                        Value::Str("Karfan — Golfsetrið Akureyri".into()),
+                    ),
+                    ("cart".into(), cart::cart_value(&summary)),
+                    (
+                        "subtotal_label".into(),
+                        Value::Str(shop::format_isk(summary.subtotal)),
+                    ),
+                    ("has_items".into(), Value::Bool(!summary.items.is_empty())),
+                ],
+                auth,
+                req,
+            );
+            if created && user.is_none() {
+                resp = resp.with_header("Set-Cookie", &cart::cookie_header(&summary.id));
+            }
+            resp
+        }
+        Err(e) => json(500, &error_value(&e)),
+    }
+}
+
+fn admin_products_page(
+    root: &Path,
+    store: &ShopStore,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
+    render(
+        root,
+        "admin_products",
+        vec![
+            ("page_title".into(), Value::Str("Vörur — Stjórnborð".into())),
+            (
+                "products".into(),
+                Value::Array(product_values(store, false)),
+            ),
+        ],
+        auth,
+        req,
+    )
+}
+
+fn admin_categories_page(
+    root: &Path,
+    store: &ShopStore,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
+    render(
+        root,
+        "admin_categories",
+        vec![
+            (
+                "page_title".into(),
+                Value::Str("Flokkar — Stjórnborð".into()),
+            ),
+            (
+                "categories".into(),
+                Value::Array(
+                    store
+                        .list_categories(false)
+                        .iter()
+                        .map(shop::category_value)
+                        .collect(),
+                ),
+            ),
+        ],
+        auth,
+        req,
+    )
+}
+
+fn admin_product_form_page(
+    root: &Path,
+    store: &ShopStore,
+    id: Option<&str>,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
+    let product = match id {
+        Some(id) => match store.product(id) {
+            Some(product) => Some(product),
+            None => return not_found_page(root, auth, req),
+        },
+        None => None,
+    };
+    let selected = product.as_ref().and_then(|p| p.category_id.as_deref());
+    let categories = store
+        .list_categories(false)
+        .iter()
+        .map(|c| {
+            let mut value = match shop::category_value(c) {
+                Value::Object(pairs) => pairs,
+                _ => vec![],
+            };
+            value.push((
+                "selected".into(),
+                Value::Bool(selected == Some(c.id.as_str())),
+            ));
+            Value::Object(value)
+        })
+        .collect();
+    let product_value = product
+        .as_ref()
+        .map(|p| shop::product_value(p, store.category_name(p.category_id.as_deref())))
+        .unwrap_or_else(|| {
+            Value::Object(vec![
+                ("id".into(), Value::Str(String::new())),
+                ("name".into(), Value::Str(String::new())),
+                ("description".into(), Value::Str(String::new())),
+                ("price".into(), Value::Str(String::new())),
+                ("imageUrl".into(), Value::Str(String::new())),
+                ("categoryId".into(), Value::Str(String::new())),
+                ("active".into(), Value::Bool(true)),
+            ])
+        });
+    let is_edit = product.is_some();
+    render(
+        root,
+        "admin_product_form",
+        vec![
+            (
+                "page_title".into(),
+                Value::Str(if is_edit {
+                    "Breyta vöru — Stjórnborð".into()
+                } else {
+                    "Ný vara — Stjórnborð".into()
+                }),
+            ),
+            ("product".into(), product_value),
+            ("categories".into(), Value::Array(categories)),
+            ("is_edit".into(), Value::Bool(is_edit)),
+            (
+                "form_title".into(),
+                Value::Str(if is_edit { "Breyta vöru" } else { "Ný vara" }.into()),
+            ),
+        ],
+        auth,
+        req,
+    )
+}
+
 // ---- booking calendar page ------------------------------------------------
 
 /// Short Icelandic weekday names (`Date.getDay()` order, 0 = Sunday), mirroring
@@ -465,7 +1329,7 @@ const DAY_NAMES: [&str; 7] = ["Sun", "Mán", "Þri", "Mið", "Fim", "Fös", "Lau
 /// Render the home booking calendar: availability + pricing across the booking
 /// window (14 days for an anonymous visitor, mirroring `getBookingWindowEnd`).
 /// Server-rendered — the slots are plain links/markup, no client JS required.
-fn calendar_page(root: &Path, store: &Store, auth: &auth::State, req: &Request) -> Response {
+fn calendar_page(root: &Path, store: &BookingStore, auth: &auth::State, req: &Request) -> Response {
     let now = now_ms();
     let start = booking::time::day_start(now);
     let days = 14; // anonymous default window
@@ -910,7 +1774,6 @@ pub fn build_engine_pub(root: &Path) -> Result<akurai_template::Engine, String> 
 pub fn load_context_pub(root: &Path) -> Value {
     load_context(root)
 }
-
 
 #[cfg(test)]
 mod tests {

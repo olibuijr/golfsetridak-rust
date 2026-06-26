@@ -1,0 +1,61 @@
+{% include "header" %}
+    <section class="admin-head">
+      <div>
+        <span class="eyebrow">Stjórnborð</span>
+        <h1>{{ form_title }}</h1>
+        <p class="lede">Skráðu heiti, verð, flokk og stöðu vöru.</p>
+      </div>
+      <a class="btn btn-secondary" href="/admin/vorur">Til baka í vörur</a>
+    </section>
+
+    <section class="admin-form-card">
+      <form class="admin-form" id="product-form">
+        <label>Heiti vöru<input name="name" value="{{ product.name }}" required /></label>
+        <label>Lýsing<textarea name="description" rows="4">{{ product.description }}</textarea></label>
+        <div class="form-grid">
+          <label>Verð (ISK)<input name="price" type="number" min="0" value="{{ product.price }}" required /></label>
+          <label>Flokkur
+            <select name="categoryId">
+              <option value="">Enginn flokkur</option>
+              {% for category in categories %}
+              <option value="{{ category.id }}" {% if category.selected %}selected{% endif %}>{{ category.name }}</option>
+              {% endfor %}
+            </select>
+          </label>
+        </div>
+        <label>Myndaslóð<input name="imageUrl" value="{{ product.imageUrl }}" placeholder="https://..." /></label>
+        <label class="checkbox-row"><input name="active" type="checkbox" {% if product.active %}checked{% endif %} /> Vara er virk</label>
+        <button class="btn btn-primary" type="submit">Vista vöru</button>
+      </form>
+    </section>
+
+    <script>
+      const form = document.getElementById("product-form");
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const fd = new FormData(form);
+        const payload = {
+          name: String(fd.get("name") || ""),
+          description: String(fd.get("description") || ""),
+          price: Number(fd.get("price") || 0),
+          imageUrl: String(fd.get("imageUrl") || ""),
+          categoryId: String(fd.get("categoryId") || ""),
+          active: fd.get("active") === "on"
+        };
+        const isEdit = {% if is_edit %}true{% else %}false{% endif %};
+        const id = "{{ product.id }}";
+        const res = await fetch(isEdit ? "/api/admin/shop/products/" + encodeURIComponent(id) : "/api/admin/shop/products", {
+          method: isEdit ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.error || "Tókst ekki að vista vöru");
+          return;
+        }
+        const productId = data.product && data.product.id ? data.product.id : id;
+        location.href = "/admin/vorur/" + encodeURIComponent(productId);
+      });
+    </script>
+{% include "footer" %}

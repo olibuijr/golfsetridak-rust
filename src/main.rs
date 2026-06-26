@@ -13,9 +13,11 @@
 
 mod auth;
 mod booking;
+mod cart;
 mod content;
 mod mime;
 mod serve;
+mod shop;
 
 use std::path::PathBuf;
 use std::process::ExitCode;

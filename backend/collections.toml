@@ -431,3 +431,71 @@ name = "payday_settings"
   [[collection.field]]
   name = "updated_at"
   type = "int"
+
+# ---- Cart session + line items (runtime uses src/cart B+trees) ------------
+[[collection]]
+name = "carts"
+
+  [[collection.field]]
+  name = "user_id"
+  type = "text"
+
+  [[collection.field]]
+  name = "status"        # open | checking_out | paid | abandoned | failed
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "currency"      # ISK
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "created_at"
+  type = "int"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
+
+[[collection]]
+name = "cart_items"
+
+  [[collection.field]]
+  name = "cart_id"
+  type = "relation"
+  collection = "carts"
+  required = true
+
+  [[collection.field]]
+  name = "type"          # product | package | slot | subscription | gift_card
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "ref_id"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "name_snapshot"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "unit_price"    # ISK, integer
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "quantity"
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "metadata"      # JSON string when represented in collections
+  type = "text"
+
+  [[collection.field]]
+  name = "created_at"
+  type = "int"
