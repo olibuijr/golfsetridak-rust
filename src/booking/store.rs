@@ -74,6 +74,8 @@ pub struct UserPackage {
     pub id: String,
     pub user_id: String,
     pub remaining: i64,
+    pub package_name: Option<String>,
+    pub slot_count: Option<i64>,
 }
 
 /// A user's active subscription window + its daily limit (`user_subscriptions`
@@ -455,6 +457,7 @@ impl Store {
         let mut t = self.lock();
         user_package_by_id(&mut t.user_packages, id)
     }
+
     /// Insert/replace a user subscription member. The storage key is
     /// `<user_subscription_id>:<member_id>`, which keeps every member of a
     /// subscription contiguous in the tree for prefix-scanned listing.
@@ -760,6 +763,24 @@ impl Store {
             ),
         )
     }
+
+    /// All packages for a user, in storage order.
+    pub fn user_packages_for_user(&self, user_id: &str) -> Vec<UserPackage> {
+        let mut t = self.lock();
+        all_user_packages(&mut t.user_packages)
+            .into_iter()
+            .filter(|p| p.user_id == user_id)
+            .collect()
+    }
+
+    /// All subscriptions for a user, in storage order.
+    pub fn user_subscriptions_for_user(&self, user_id: &str) -> Vec<UserSubscription> {
+        let mut t = self.lock();
+        all_user_subscriptions(&mut t.user_subscriptions)
+            .into_iter()
+            .filter(|s| s.user_id == user_id)
+            .collect()
+    }
 }
 
 // ---- key + record plumbing -----------------------------------------------
@@ -862,11 +883,18 @@ fn count_active_subscription_bookings(tree: &mut BTree, sub_id: &str, start: i64
 }
 
 fn user_package_value(p: &UserPackage) -> Value {
-    Value::Object(vec![
+    let mut obj = vec![
         ("id".into(), Value::Str(p.id.clone())),
         ("user_id".into(), Value::Str(p.user_id.clone())),
         ("remaining".into(), Value::Int(p.remaining)),
-    ])
+    ];
+    if let Some(name) = &p.package_name {
+        obj.push(("package_name".into(), Value::Str(name.clone())));
+    }
+    if let Some(count) = p.slot_count {
+        obj.push(("slot_count".into(), Value::Int(count)));
+    }
+    Value::Object(obj)
 }
 
 fn put_user_package(tree: &mut BTree, p: &UserPackage) -> io::Result<()> {
@@ -880,6 +908,11 @@ fn user_package_by_id(tree: &mut BTree, id: &str) -> Option<UserPackage> {
         id: v.get("id").and_then(Value::as_str)?.to_string(),
         user_id: v.get("user_id").and_then(Value::as_str)?.to_string(),
         remaining: v.get("remaining").and_then(Value::as_i64)?,
+        package_name: v
+            .get("package_name")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        slot_count: v.get("slot_count").and_then(Value::as_i64),
     })
 }
 
@@ -895,6 +928,38 @@ fn user_subscription_by_id(tree: &mut BTree, id: &str) -> Option<UserSubscriptio
     })
 }
 
+fn all_user_packages(tree: &mut BTree) -> Vec<UserPackage> {
+    full_scan(tree)
+        .iter()
+        .filter_map(|v| {
+            Some(UserPackage {
+                id: v.get("id").and_then(Value::as_str)?.to_string(),
+                user_id: v.get("user_id").and_then(Value::as_str)?.to_string(),
+                remaining: v.get("remaining").and_then(Value::as_i64)?,
+                package_name: v
+                    .get("package_name")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
+                slot_count: v.get("slot_count").and_then(Value::as_i64),
+            })
+        })
+        .collect()
+}
+
+fn all_user_subscriptions(tree: &mut BTree) -> Vec<UserSubscription> {
+    full_scan(tree)
+        .iter()
+        .filter_map(|v| {
+            Some(UserSubscription {
+                id: v.get("id").and_then(Value::as_str)?.to_string(),
+                user_id: v.get("user_id").and_then(Value::as_str)?.to_string(),
+                valid_from: v.get("valid_from").and_then(Value::as_i64)?,
+                valid_until: v.get("valid_until").and_then(Value::as_i64)?,
+                daily_limit: v.get("daily_limit").and_then(Value::as_i64)?,
+            })
+        })
+        .collect()
+}
 fn user_fixed_price_locked(tree: &mut BTree, user_id: &str) -> Option<i64> {
     let raw = tree.get(user_id.as_bytes()).ok().flatten()?;
     let v = akurai_json::parse(&String::from_utf8_lossy(&raw)).ok()?;
@@ -1093,6 +1158,8 @@ mod tests {
                 id: "up1".into(),
                 user_id: "u1".into(),
                 remaining: 1,
+                package_name: None,
+                slot_count: None,
             })
             .unwrap();
         let now = parse_date("2026-06-26").unwrap();
@@ -1120,6 +1187,8 @@ mod tests {
                 id: "up1".into(),
                 user_id: "owner".into(),
                 remaining: 5,
+                package_name: None,
+                slot_count: None,
             })
             .unwrap();
         let now = parse_date("2026-06-26").unwrap();
@@ -1204,6 +1273,8 @@ mod tests {
                 id: "up1".into(),
                 user_id: "u1".into(),
                 remaining: 1,
+                package_name: None,
+                slot_count: None,
             })
             .unwrap();
         let now = parse_date("2026-06-26").unwrap();
@@ -1505,6 +1576,88 @@ mod tests {
             .unwrap();
         let ids = store.accessible_user_subscription_ids("owner@x.is");
         assert_eq!(ids, vec!["subA".to_string(), "subB".to_string()]);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn list_user_packages_and_subscriptions() {
+        let (store, dir) = temp_store("list");
+
+        // Create packages for two users
+        store
+            .put_user_package(&UserPackage {
+                id: "up1".into(),
+                user_id: "u1".into(),
+                remaining: 5,
+                package_name: Some("Package A".into()),
+                slot_count: Some(10),
+            })
+            .unwrap();
+        store
+            .put_user_package(&UserPackage {
+                id: "up2".into(),
+                user_id: "u1".into(),
+                remaining: 3,
+                package_name: Some("Package B".into()),
+                slot_count: Some(10),
+            })
+            .unwrap();
+        store
+            .put_user_package(&UserPackage {
+                id: "up3".into(),
+                user_id: "u2".into(),
+                remaining: 7,
+                package_name: Some("Package C".into()),
+                slot_count: Some(20),
+            })
+            .unwrap();
+
+        // Create subscriptions for two users
+        store
+            .put_user_subscription(&UserSubscription {
+                id: "us1".into(),
+                user_id: "u1".into(),
+                valid_from: 1000,
+                valid_until: 2000,
+                daily_limit: 2,
+            })
+            .unwrap();
+        store
+            .put_user_subscription(&UserSubscription {
+                id: "us2".into(),
+                user_id: "u2".into(),
+                valid_from: 1000,
+                valid_until: 2000,
+                daily_limit: 3,
+            })
+            .unwrap();
+
+        // List packages for u1
+        let u1_pkgs = store.user_packages_for_user("u1");
+        assert_eq!(u1_pkgs.len(), 2);
+        assert_eq!(u1_pkgs[0].id, "up1");
+        assert_eq!(u1_pkgs[0].remaining, 5);
+        assert_eq!(u1_pkgs[1].id, "up2");
+        assert_eq!(u1_pkgs[1].remaining, 3);
+
+        // List packages for u2
+        let u2_pkgs = store.user_packages_for_user("u2");
+        assert_eq!(u2_pkgs.len(), 1);
+        assert_eq!(u2_pkgs[0].id, "up3");
+        assert_eq!(u2_pkgs[0].remaining, 7);
+
+        // List subscriptions for u1
+        let u1_subs = store.user_subscriptions_for_user("u1");
+        assert_eq!(u1_subs.len(), 1);
+        assert_eq!(u1_subs[0].id, "us1");
+        assert_eq!(u1_subs[0].daily_limit, 2);
+
+        // List subscriptions for u2
+        let u2_subs = store.user_subscriptions_for_user("u2");
+        assert_eq!(u2_subs.len(), 1);
+        assert_eq!(u2_subs[0].id, "us2");
+        assert_eq!(u2_subs[0].daily_limit, 3);
+
         cleanup(&dir);
     }
 }

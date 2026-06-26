@@ -14,8 +14,7 @@
     },
     {
       "path": "/my",
-      "template": "placeholder",
-      "data": "data/my.json",
+      "template": "my",
       "title": "Mínar síður — Golfsetrið Akureyri"
     },
     {
