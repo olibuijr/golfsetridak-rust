@@ -1,0 +1,46 @@
+{% include "header" %}
+    <section class="hero text-center">
+      <span class="eyebrow">Golfsetrið Akureyri</span>
+      <h1>Bókaðu rástíma í golfhermi</h1>
+      <p class="lede">Innandyra golfhermar með Trackman. Veldu lausan tíma — verð ræðst af tíma dags.</p>
+    </section>
+
+    <section class="calendar">
+      {% if pricing_legend %}
+      <div class="price-legend" aria-label="Verðskrá">
+        {% for rule in pricing_legend %}
+        <span class="price-chip">
+          <span class="price-chip-name">{{ rule.name }}</span>
+          <span class="price-chip-range">{{ rule.range_label }}</span>
+          <span class="price-chip-price">{{ rule.price_label }}</span>
+        </span>
+        {% endfor %}
+      </div>
+      {% endif %}
+
+      <p class="calendar-note">
+        Skráðu þig inn á <a href="/my">Mínar síður</a> til að staðfesta bókun.
+        Bókunarglugginn nær yfir næstu 14 daga.
+      </p>
+
+      <div class="calendar-days">
+        {% for day in calendar_days %}
+        <article class="day-card" id="day-{{ day.date }}">
+          <header class="day-head">
+            <span class="day-weekday">{{ day.weekday }}</span>
+            <span class="day-date">{{ day.date }}</span>
+          </header>
+          <div class="slot-grid">
+            {% for slot in day.slots %}
+            <div class="slot-card slot-{{ slot.status }}" data-starts-at="{{ slot.starts_at }}">
+              <span class="slot-hour">{{ slot.hour_label }}</span>
+              {% if slot.available %}<span class="slot-price">{{ slot.price_label }}</span>{% endif %}
+              {% if slot.status == "booked" %}<span class="slot-tag">Bókað</span>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+    </section>
+{% include "footer" %}

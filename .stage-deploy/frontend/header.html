@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="is">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{ page_title }}</title>
+    {% if meta_description %}<meta name="description" content="{{ meta_description }}" />{% endif %}
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@300;400;500;600&display=swap" />
+    <link rel="stylesheet" href="/styles.css" />
+    <!-- Atomic utility classes generated from the markup by the framework's CSS
+         engine (empty if no utility class is used). See /utilities.css. -->
+    <link rel="stylesheet" href="/utilities.css" />
+  </head>
+  <body>
+    <header class="nav">
+      <a class="brand" href="/">
+        <span class="brand-mark" aria-hidden="true">⛳</span>
+        <span class="brand-text">
+          <span class="brand-name">{{ brand }}</span>
+          <span class="brand-place">{{ brand_place }}</span>
+        </span>
+      </a>
+      <nav class="nav-links">
+        {% for link in nav %}<a href="{{ link.href }}">{{ link.label }}</a>{% endfor %}
+      </nav>
+      {% if auth_user_email %}
+      <div class="nav-auth">
+        <span class="nav-user">{{ auth_user_email }}</span>
+        <form method="post" action="/logout" style="display:inline">
+          <button class="btn btn-ghost nav-logout" type="submit">Útskrá</button>
+        </form>
+      </div>
+      {% else %}
+      <a class="btn btn-primary nav-login" href="/login">Innskrá</a>
+      {% endif %}
+    </header>
+    <main class="container">

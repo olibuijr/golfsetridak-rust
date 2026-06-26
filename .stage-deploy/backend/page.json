@@ -1,0 +1,34 @@
+{
+  "site_url": "https://golfsetridak.is",
+  "title": "Golfsetrið Akureyri",
+  "brand": "Golfsetrið",
+  "brand_place": "Akureyri",
+  "year": 2026,
+  "nav": [
+    { "label": "Forsíða", "href": "/" },
+    { "label": "Fréttir", "href": "/frettir" },
+    { "label": "Verslun", "href": "/verslun" },
+    { "label": "Gjafabréf", "href": "/gjafabref" },
+    { "label": "Notendahandbók", "href": "/notendahandbok" }
+  ],
+  "company": {
+    "legal_name": "Golfsetrið ehf.",
+    "kennitala": "",
+    "vsk": "",
+    "street": "Lækjarvellir 1C",
+    "postal": "604 Akureyri"
+  },
+  "contact": {
+    "email": "info@golfsetridak.is",
+    "phone": "+354 849 6365",
+    "phone_href": "+3548496365"
+  },
+  "footer_links": [
+    { "label": "Um Golfsetrið", "href": "/um-okkur" },
+    { "label": "Fréttir", "href": "/frettir" },
+    { "label": "Notendahandbók", "href": "/notendahandbok" },
+    { "label": "Gjafabréf", "href": "/gjafabref" },
+    { "label": "Viðskiptaskilmálar", "href": "/skilmalar" },
+    { "label": "Persónuverndarstefna", "href": "/personuvernd" }
+  ]
+}

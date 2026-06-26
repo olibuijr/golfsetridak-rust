@@ -1,0 +1,57 @@
+{% include "header" %}
+
+<section class="section-content">
+  <div class="login-card">
+    <h1 class="login-title">Innskráning</h1>
+
+    {% if error %}
+    <div class="login-error" role="alert">{{ error }}</div>
+    {% endif %}
+
+    <form class="login-form" method="post" action="/login">
+      {% if sent %}
+      <!-- Code entry step: email pre-filled, hidden -->
+      <input type="hidden" name="email" value="{{ form_email }}" />
+      <p class="login-hint">
+        Við sendum 6 stafa kóða á <strong>{{ form_email }}</strong>.
+        Athugaðu tölvupóstinn þinn.
+      </p>
+      <div class="form-field">
+        <label for="code">Staðfestingarkóði</label>
+        <input
+          id="code"
+          name="code"
+          type="text"
+          inputmode="numeric"
+          pattern="[0-9]{6}"
+          maxlength="6"
+          placeholder="000000"
+          autocomplete="one-time-code"
+          autofocus
+          required
+        />
+      </div>
+      <button class="btn btn-primary" type="submit">Staðfesta</button>
+      <a class="login-back" href="/login">Nota annað netfang</a>
+      {% else %}
+      <!-- Email entry step -->
+      <div class="form-field">
+        <label for="email">Netfang</label>
+        <input
+          id="email"
+          name="email"
+          type="email"
+          value="{{ form_email }}"
+          placeholder="you@example.com"
+          autocomplete="email"
+          autofocus
+          required
+        />
+      </div>
+      <button class="btn btn-primary" type="submit">Senda kóða</button>
+      {% endif %}
+    </form>
+  </div>
+</section>
+
+{% include "footer" %}

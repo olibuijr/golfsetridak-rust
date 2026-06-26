@@ -1,0 +1,47 @@
+{% include "header" %}
+    <section class="admin-head">
+      <div>
+        <span class="eyebrow">Stjórnborð</span>
+        <h1>Stillingar</h1>
+        <p class="lede">Millifærsluupplýsingar og tilkynningar.</p>
+      </div>
+      <nav class="admin-nav">
+        <a href="/admin/bookings">Bókanir</a>
+        <a href="/admin/payments">Greiðslur</a>
+        <a href="/admin/users">Notendur</a>
+        <a href="/admin/vorur">Vörur</a>
+        <a href="/admin/sms">SMS</a>
+        <a href="/admin/tilkynningar">Tilkynningar</a>
+        <a href="/admin/settings" class="is-active">Stillingar</a>
+      </nav>
+    </section>
+
+    {% if saved %}<p class="admin-banner admin-banner-ok">Stillingar vistaðar.</p>{% endif %}
+    {% if error %}<p class="admin-banner admin-banner-error">{{ error }}</p>{% endif %}
+
+    <section class="admin-card">
+      <h2>Millifærsla</h2>
+      <form method="post" action="/admin/settings" class="admin-form">
+        <input type="hidden" name="section" value="bank_transfer" />
+        <label>Heiti banka<input name="bankName" value="{{ bank_name }}" /></label>
+        <label>Viðtakandi<input name="accountHolder" value="{{ account_holder }}" /></label>
+        <label>Kennitala<input name="kennitala" value="{{ kennitala }}" /></label>
+        <label>Reikningur<input name="accountNumber" value="{{ account_number }}" /></label>
+        <button class="btn btn-primary" type="submit">Vista millifærslu</button>
+      </form>
+    </section>
+
+    <section class="admin-card">
+      <h2>Tilkynningar</h2>
+      <form method="post" action="/admin/settings" class="admin-form">
+        <input type="hidden" name="section" value="notifications" />
+        <label class="checkbox-row">
+          <input name="adminCopyEnabled" type="checkbox" {% if admin_copy_enabled %}checked{% endif %} />
+          Senda afrit til stjórnanda
+        </label>
+        <label>Netfang stjórnanda<input name="adminEmail" value="{{ admin_email }}" /></label>
+        <label>Sími stjórnanda<input name="adminPhone" value="{{ admin_phone }}" /></label>
+        <button class="btn btn-primary" type="submit">Vista tilkynningar</button>
+      </form>
+    </section>
+{% include "footer" %}

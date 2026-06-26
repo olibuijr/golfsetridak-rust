@@ -1,0 +1,15 @@
+{% include "header" %}
+    <section class="content-section">
+      <p class="section-tag">Fréttir</p>
+      <h1>Fréttir frá Golfsetrinu</h1>
+      <ul class="news-list">
+        {% for item in news %}
+        <li class="news-item">
+          <a class="news-link" href="/frettir/{{ item.slug }}">{{ item.title }}</a>
+          {% if item.date %}<p class="article-meta">{{ item.date }}</p>{% endif %}
+          {% if item.summary %}<p class="news-summary">{{ item.summary }}</p>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+{% include "footer" %}

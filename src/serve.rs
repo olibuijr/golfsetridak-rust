@@ -1817,7 +1817,10 @@ fn my_page(root: &Path, store: &BookingStore, auth: &auth::State, req: &Request)
                 Value::Str("Mínar síður — Golfsetrið Akureyri".into()),
             ),
             ("subscriptions".into(), Value::Array(subs)),
-            ("active_subscriptions_count".into(), Value::Int(active_count)),
+            (
+                "active_subscriptions_count".into(),
+                Value::Int(active_count),
+            ),
         ],
         auth,
         req,

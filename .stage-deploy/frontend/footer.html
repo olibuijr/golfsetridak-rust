@@ -1,0 +1,29 @@
+    </main>
+    <footer class="site-footer">
+      <div class="footer-grid">
+        <div class="footer-col">
+          <h3 class="footer-title">{{ company.legal_name }}</h3>
+          {% if company.kennitala %}<p>Kt. {{ company.kennitala }}</p>{% endif %}
+          {% if company.vsk %}<p>VSK-nr. {{ company.vsk }}</p>{% endif %}
+          <p>{{ company.street }}</p>
+          <p>{{ company.postal }}</p>
+        </div>
+        <div class="footer-col">
+          <h3 class="footer-title">Hafðu samband</h3>
+          <p><a href="mailto:{{ contact.email }}">{{ contact.email }}</a></p>
+          <p><a href="tel:{{ contact.phone_href }}">{{ contact.phone }}</a></p>
+        </div>
+        <div class="footer-col">
+          <h3 class="footer-title">Upplýsingar</h3>
+          <ul class="footer-links">
+            {% for l in footer_links %}<li><a href="{{ l.href }}">{{ l.label }}</a></li>{% endfor %}
+          </ul>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© {{ year }} {{ company.legal_name }}</p>
+        <p class="muted">Öll verð í ISK með VSK · Greiðslumöguleikar: kort eða millifærsla</p>
+      </div>
+    </footer>
+  </body>
+</html>

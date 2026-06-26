@@ -1,0 +1,73 @@
+{% include "header" %}
+    <section class="shop-hero">
+      <div>
+        <span class="eyebrow">Verslun</span>
+        <h1>Verslun</h1>
+        <p class="lede">Klippikort, gjafir og vörur frá Golfsetrinu á einum stað.</p>
+      </div>
+      <a class="btn btn-primary" href="/my/verslun/karfa">Opna körfu</a>
+    </section>
+
+    <section class="shop-layout">
+      <aside class="shop-filter">
+        <h2>Flokkar</h2>
+        <a class="filter-chip" href="/verslun">Allar vörur</a>
+        {% for category in categories %}
+        <a class="filter-chip" href="#category-{{ category.id }}">{{ category.name }}</a>
+        {% endfor %}
+      </aside>
+
+      <div class="product-grid">
+        {% if products %}
+        {% for product in products %}
+        <article class="product-card" id="product-{{ product.id }}">
+          <div class="product-media">
+            {% if product.hasImage %}
+            <img src="{{ product.imageUrl }}" alt="" loading="lazy" />
+            {% endif %}
+            {% if product.hasImage %}{% else %}<span class="product-placeholder" aria-hidden="true">Vara</span>{% endif %}
+          </div>
+          <div class="product-body">
+            {% if product.categoryName %}<p class="product-category">{{ product.categoryName }}</p>{% endif %}
+            <h2>{{ product.name }}</h2>
+            {% if product.description %}<p>{{ product.description }}</p>{% endif %}
+          </div>
+          <footer class="product-footer">
+            <strong>{{ product.priceLabel }}</strong>
+            <button class="btn btn-primary" type="button" data-product-id="{{ product.id }}" onclick="addProductToCart(this)">Bæta í körfu</button>
+          </footer>
+        </article>
+        {% endfor %}
+        {% else %}
+        <div class="empty-state">
+          <h2>Engar vörur enn</h2>
+          <p>Vörur birtast hér þegar þær hafa verið skráðar í stjórnborði.</p>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <script>
+      async function addProductToCart(button) {
+        const original = button.textContent;
+        button.disabled = true;
+        button.textContent = "Bæti við...";
+        try {
+          const res = await fetch("/api/cart/items", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ type: "product", refId: button.dataset.productId, quantity: 1 })
+          });
+          if (!res.ok) {
+            const data = await res.json().catch(() => ({}));
+            throw new Error(data.error || "Tókst ekki að bæta í körfu");
+          }
+          button.textContent = "Komið í körfu";
+          setTimeout(() => { button.textContent = original; button.disabled = false; }, 1200);
+        } catch (err) {
+          button.textContent = err.message || "Villa";
+          setTimeout(() => { button.textContent = original; button.disabled = false; }, 1800);
+        }
+      }
+    </script>
+{% include "footer" %}
