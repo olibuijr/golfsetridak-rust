@@ -1,0 +1,14 @@
+{% include "header" %}
+    <section class="content-section">
+      <p class="section-tag">Notendahandbók</p>
+      <h1>Notendahandbók</h1>
+      <p class="lead">Leiðbeiningar um bókanir, greiðslur, klippikort og aðgang að Golfsetrinu.</p>
+      <ul class="handbook-list">
+        {% for ch in chapters %}
+        <li class="handbook-item">
+          {% if ch.exists %}<a href="/notendahandbok/{{ ch.slug }}">{{ ch.title }}</a>{% else %}<span class="muted">{{ ch.title }}</span>{% endif %}
+        </li>
+        {% endfor %}
+      </ul>
+    </section>
+{% include "footer" %}

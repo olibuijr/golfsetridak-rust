@@ -1,0 +1,40 @@
+{
+  "routes": [
+    {
+      "path": "/",
+      "template": "placeholder",
+      "data": "data/home.json",
+      "title": "Golfsetrið Akureyri — golfhermar og rástímar"
+    },
+    {
+      "path": "/verslun",
+      "template": "placeholder",
+      "data": "data/verslun.json",
+      "title": "Verslun — Golfsetrið Akureyri"
+    },
+    {
+      "path": "/gjafabref",
+      "template": "placeholder",
+      "data": "data/gjafabref.json",
+      "title": "Gjafabréf — Golfsetrið Akureyri"
+    },
+    {
+      "path": "/my",
+      "template": "placeholder",
+      "data": "data/my.json",
+      "title": "Mínar síður — Golfsetrið Akureyri"
+    },
+    {
+      "path": "/checkout",
+      "template": "placeholder",
+      "data": "data/checkout.json",
+      "title": "Greiðsla — Golfsetrið Akureyri"
+    },
+    {
+      "path": "/admin",
+      "template": "placeholder",
+      "data": "data/admin.json",
+      "title": "Stjórnborð — Golfsetrið Akureyri"
+    }
+  ]
+}

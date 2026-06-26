@@ -1,0 +1,17 @@
+# Rust build artifacts
+/target
+**/*.rs.bk
+
+# Runtime data (never commit the embedded database or uploads) — Phase 3+.
+/data/
+**/store.db
+**/store.db-*
+
+# Local env / editor
+.env
+.env.*
+.DS_Store
+*.swp
+
+# Agent worktrees / local tooling
+.claude/

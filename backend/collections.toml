@@ -1,0 +1,433 @@
+# Golfsetrið Akureyri — declarative data model (Phase 1 subset).
+#
+# This file ports the *catalog* and *config* entities of the golfsetridak Drizzle
+# schema onto the AkurAI-Framework auto-API collection model. Declaring a
+# collection mounts a full REST API at /api/collections/<name>/records (list,
+# create, read, update, delete + ?search) with validation derived from these
+# field types — no handwritten endpoint code.
+#
+# Field types: text | int | float | bool | relation | file
+#   required = true            → must be present on create
+#   embed = true               → (text only) auto-embedded for semantic ?search
+#   relation → collection = "" → names the target collection (stores its id)
+#
+# IMPORTANT — what the collection model intentionally does NOT express, and is
+# therefore enforced in Phase 3 SQL (see PORT.md):
+#   • DEFAULT values, NOT NULL on non-required fields, UNIQUE constraints
+#   • enum/check constraints (status/role/type fields are plain `text` here)
+#   • composite-unique indexes and partial indexes
+#   • money is integer ISK (minor units are not used by the source)
+#   • timestamps are integer epoch-milliseconds, app-set (created_at/updated_at)
+#   • records use an auto-increment integer id; the source uses text UUIDs and
+#     UUID foreign keys — relation wiring is revisited when the SQL layer lands.
+#
+# Entities that need atomic constraints/transactions (bookings unique-slot,
+# carts, cart_items, payments, gift_card_redemptions balance decrements,
+# user_packages remaining, the user_subscription_* tables, auth tables) are NOT
+# forced into collections — they are documented in PORT.md as "SQL +
+# transaction-backed, Phase 3" with their intended DDL.
+
+# ---- Shop: product categories -------------------------------------------
+[[collection]]
+name = "product_categories"
+
+  [[collection.field]]
+  name = "name"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "slug"          # UNIQUE in source (enforced in Phase 3 SQL)
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "description"
+  type = "text"
+
+  [[collection.field]]
+  name = "position"      # default 0
+  type = "int"
+
+  [[collection.field]]
+  name = "active"        # default true
+  type = "bool"
+
+  [[collection.field]]
+  name = "created_at"
+  type = "int"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
+
+# ---- Shop: products ------------------------------------------------------
+[[collection]]
+name = "products"
+
+  [[collection.field]]
+  name = "name"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "description"
+  type = "text"
+  embed = true           # searchable product copy
+
+  [[collection.field]]
+  name = "price"         # ISK, integer
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "image_url"
+  type = "text"
+
+  [[collection.field]]
+  name = "category"      # FK → product_categories (SET NULL in source)
+  type = "relation"
+  collection = "product_categories"
+
+  [[collection.field]]
+  name = "active"        # default true
+  type = "bool"
+
+  [[collection.field]]
+  name = "position"      # default 0
+  type = "int"
+
+  [[collection.field]]
+  name = "created_at"
+  type = "int"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
+
+# ---- Booking slot packages (klippikort) ---------------------------------
+[[collection]]
+name = "packages"
+
+  [[collection.field]]
+  name = "name"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "slot_count"
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "price"         # ISK, integer
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "active"        # default true
+  type = "bool"
+
+# ---- Subscription tiers --------------------------------------------------
+[[collection]]
+name = "subscriptions"
+
+  [[collection.field]]
+  name = "name"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "valid_from"    # date string
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "valid_until"   # date string
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "daily_limit"   # default 2
+  type = "int"
+
+  [[collection.field]]
+  name = "price"         # ISK, integer
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "shareable"     # default false
+  type = "bool"
+
+  [[collection.field]]
+  name = "max_members"   # default 1
+  type = "int"
+
+  [[collection.field]]
+  name = "active"        # default true
+  type = "bool"
+
+# ---- Hourly pricing rules ------------------------------------------------
+[[collection]]
+name = "pricing_rules"
+
+  [[collection.field]]
+  name = "name"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "start_hour"
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "end_hour"
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "price"         # ISK, integer
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "active"        # default true
+  type = "bool"
+
+# ---- Gift cards (issuance catalog) --------------------------------------
+# NOTE: `balance` decrements on redemption — that mutation is transaction-backed
+# in Phase 3 (gift_card_redemptions). The card record itself is catalog-like.
+[[collection]]
+name = "gift_cards"
+
+  [[collection.field]]
+  name = "code"          # UNIQUE in source
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "amount"        # ISK initial value
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "balance"       # ISK remaining (Phase 3 decrements atomically)
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "currency"      # default ISK
+  type = "text"
+
+  [[collection.field]]
+  name = "status"        # enum: active|used|expired|cancelled
+  type = "text"
+
+  [[collection.field]]
+  name = "expires_at"
+  type = "int"
+
+  [[collection.field]]
+  name = "delivery_at"
+  type = "int"
+
+  [[collection.field]]
+  name = "delivered_at"
+  type = "int"
+
+  [[collection.field]]
+  name = "recipient_email"
+  type = "text"
+
+  [[collection.field]]
+  name = "recipient_phone"
+  type = "text"
+
+  [[collection.field]]
+  name = "recipient_name"
+  type = "text"
+
+  [[collection.field]]
+  name = "message"
+  type = "text"
+
+  [[collection.field]]
+  name = "created_at"
+  type = "int"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
+
+# ---- SMS templates -------------------------------------------------------
+# Source PK is the text `key`; collections use an auto id, so `key` is a UNIQUE
+# text field here (Phase 3 SQL enforces uniqueness).
+[[collection]]
+name = "sms_templates"
+
+  [[collection.field]]
+  name = "key"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "body"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
+
+# ---- Email templates -----------------------------------------------------
+[[collection]]
+name = "email_templates"
+
+  [[collection.field]]
+  name = "key"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "subject"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "body_html"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "language"      # default "is"
+  type = "text"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
+
+# ---- Settings singletons -------------------------------------------------
+# Each of these is a single-row config table in the source (id = "default").
+# Modelled as collections with one record; defaults live in app/seed logic.
+
+[[collection]]
+name = "bank_transfer_settings"
+
+  [[collection.field]]
+  name = "bank_name"
+  type = "text"
+
+  [[collection.field]]
+  name = "account_holder"
+  type = "text"
+
+  [[collection.field]]
+  name = "kennitala"
+  type = "text"
+
+  [[collection.field]]
+  name = "account_number"
+  type = "text"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
+
+[[collection]]
+name = "notification_settings"
+
+  [[collection.field]]
+  name = "admin_copy_enabled"   # default true
+  type = "bool"
+
+  [[collection.field]]
+  name = "admin_email"
+  type = "text"
+
+  [[collection.field]]
+  name = "admin_phone"
+  type = "text"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
+
+[[collection]]
+name = "landsbankinn_gateway_settings"
+
+  [[collection.field]]
+  name = "api_base_url"
+  type = "text"
+
+  [[collection.field]]
+  name = "user_id"
+  type = "text"
+
+  [[collection.field]]
+  name = "api_key"              # secret — keep server-side only (Phase 3 sidecar)
+  type = "text"
+
+  [[collection.field]]
+  name = "entity_id"
+  type = "text"
+
+  [[collection.field]]
+  name = "payment_contract_id"
+  type = "text"
+
+  [[collection.field]]
+  name = "interaction_type"     # default "IFRAME"
+  type = "text"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
+
+[[collection]]
+name = "payday_settings"
+
+  [[collection.field]]
+  name = "enabled"              # default false
+  type = "bool"
+
+  [[collection.field]]
+  name = "api_base_url"
+  type = "text"
+
+  [[collection.field]]
+  name = "client_id"
+  type = "text"
+
+  [[collection.field]]
+  name = "client_secret"        # secret — Phase 3 sidecar
+  type = "text"
+
+  [[collection.field]]
+  name = "default_vat_percentage"  # default 24
+  type = "int"
+
+  [[collection.field]]
+  name = "create_electronic_invoice"  # default false
+  type = "bool"
+
+  [[collection.field]]
+  name = "send_email"          # default false
+  type = "bool"
+
+  [[collection.field]]
+  name = "create_claim"        # default false
+  type = "bool"
+
+  [[collection.field]]
+  name = "due_days"            # default 0
+  type = "int"
+
+  [[collection.field]]
+  name = "final_due_days"      # default 14
+  type = "int"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"

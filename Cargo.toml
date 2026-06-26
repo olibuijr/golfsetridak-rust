@@ -1,0 +1,38 @@
+[package]
+name = "golfsetridak"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+description = "Golfsetrið Akureyri — a single-binary website built on the AkurAI-Framework crates."
+authors = ["Ólafur Búi Ólafsson"]
+
+[[bin]]
+name = "golfsetridak"
+path = "src/main.rs"
+
+[dependencies]
+# AkurAI-Framework crates only — zero external runtime dependencies, exactly as
+# the framework itself promises. Path deps to the sibling framework checkout
+# (../AkurAI-Framework, the same layout the framework's own crates/cli uses).
+#
+# Phase 1 (this foundation) links only the crates needed to serve static +
+# templated + markdown content. The data-layer crates (akurai-sqlexec,
+# akurai-storage, akurai-collections, akurai-toml, akurai-blobs, akurai-vector)
+# and the realtime crate (akurai-ws) are wired in later phases when their
+# features land — see PORT.md. Adding an unused crate now would be dead weight
+# in the binary and violate the lean-build rule.
+akurai-http = { path = "../AkurAI-Framework/crates/http" }
+akurai-json = { path = "../AkurAI-Framework/crates/json" }
+akurai-template = { path = "../AkurAI-Framework/crates/template" }
+akurai-markdown = { path = "../AkurAI-Framework/crates/markdown" }
+akurai-router = { path = "../AkurAI-Framework/crates/router" }
+akurai-css = { path = "../AkurAI-Framework/crates/css" }
+
+# Match the framework's release profile: one small, stripped, fully-optimized
+# static binary.
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
