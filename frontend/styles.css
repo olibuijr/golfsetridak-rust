@@ -1037,3 +1037,220 @@ h3 { font-size: 1.25rem; }
 .offer-arrow svg { width: 20px; height: 20px; display: block; }
 .offer-card.offer-sun .icon-box { background: rgba(163, 230, 53, 0.16); color: var(--accent); }
 .offer-card.offer-gift .icon-box { background: rgba(16, 185, 129, 0.16); color: var(--brand-hover); }
+
+/* ==== Previously-undefined component layer (login, account, gift) ==== */
+
+/* Generic section wrappers. */
+.section-content { padding: 8px 0 0; }
+.section-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-top: 20px;
+}
+.section-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+.section-header h2 { margin: 4px 0 0; }
+
+/* Shared form field. */
+.form-field { display: grid; gap: 7px; }
+.form-field label { color: var(--muted); font-size: 0.9rem; font-weight: 500; }
+.form-field input,
+.form-field select,
+.form-field textarea,
+.gift-form input,
+.gift-form select {
+  width: 100%;
+  padding: 11px 13px;
+  font: inherit;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius);
+}
+.form-field input:focus,
+.form-field select:focus,
+.form-field textarea:focus,
+.gift-form input:focus { outline: none; border-color: var(--brand-hover); }
+
+/* Button variants used by templates but never defined. */
+.btn-small { padding: 0.5rem 0.95rem; font-size: 0.92rem; }
+.btn-ghost { background: transparent; color: var(--muted); border-color: transparent; }
+.btn-ghost:hover { color: var(--brand-hover); }
+
+/* Login / auth card. */
+.login-card {
+  max-width: 27rem;
+  margin: 36px auto 72px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 38px 34px;
+}
+.login-title { margin: 0; }
+.login-form { display: grid; gap: 18px; margin-top: 20px; }
+.login-form .btn { width: 100%; }
+.login-hint { color: var(--muted); margin: 0; }
+.login-hint strong { color: var(--text); }
+.login-error {
+  padding: 12px 14px;
+  border-radius: var(--radius);
+  background: rgba(239, 68, 68, 0.12);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  color: #fecaca;
+  margin-top: 18px;
+}
+.login-back { display: inline-block; color: var(--muted); font-size: 0.9rem; text-align: center; }
+.login-back:hover { color: var(--brand-hover); }
+
+/* Account dashboard — stat cards. */
+.dashboard-stats {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  margin-top: 8px;
+}
+.stat-card {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  padding: 18px 20px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.stat-icon {
+  font-size: 1.5rem;
+  width: 48px;
+  height: 48px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: rgba(5, 150, 105, 0.14);
+  flex: none;
+}
+.stat-info { display: flex; flex-direction: column; line-height: 1.25; }
+.stat-label { font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); }
+.stat-info strong { font-family: var(--font-heading); font-size: 1.7rem; font-weight: 700; color: var(--text); }
+.stat-note { font-size: 0.8rem; color: var(--muted); }
+
+/* Account tabs. */
+.tab-bar { display: flex; flex-wrap: wrap; gap: 6px; margin: 24px 0 4px; border-bottom: 1px solid var(--border); }
+.tab-link {
+  padding: 10px 16px;
+  color: var(--muted);
+  font-weight: 600;
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.92rem;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+.tab-link:hover { color: var(--text); text-decoration: none; }
+.tab-link.active { color: var(--brand-hover); border-bottom-color: var(--brand-hover); }
+
+/* Packages grid + progress. */
+.packages-grid { display: grid; gap: 14px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.package-card {
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+}
+.package-header { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.package-header h3 { margin: 0; font-size: 1.15rem; }
+.package-percent { font-family: var(--font-heading); font-weight: 700; color: var(--accent); }
+.package-progress { margin: 8px 0 12px; color: var(--muted); }
+.package-remaining { font-family: var(--font-heading); font-size: 1.3rem; font-weight: 700; color: var(--text); }
+.package-total { color: var(--muted); }
+.progress-bar { height: 8px; border-radius: 999px; background: rgba(255, 255, 255, 0.07); overflow: hidden; }
+.progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--brand), var(--accent)); }
+
+/* Bookings table. */
+.bookings-table { display: grid; gap: 1px; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.booking-header,
+.booking-row { display: grid; grid-template-columns: 1fr auto; gap: 12px; padding: 12px 16px; background: var(--surface); }
+.booking-header { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.1em; }
+.booking-row { background: rgba(255, 255, 255, 0.02); }
+
+/* Status badges. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 3px 10px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: capitalize;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--muted);
+}
+.badge-confirmed { background: rgba(16, 185, 129, 0.16); color: var(--brand-hover); }
+.badge-pending { background: rgba(163, 230, 53, 0.14); color: var(--accent); }
+.badge-cancelled { background: rgba(239, 68, 68, 0.14); color: #fca5a5; }
+
+/* Loading / error states. */
+.loading-state,
+.error-state {
+  text-align: center;
+  color: var(--muted);
+  padding: 40px 0;
+}
+.error-state p { color: #fca5a5; }
+
+/* Header auth cluster. */
+.nav-auth { display: inline-flex; align-items: center; gap: 12px; margin-left: auto; }
+.nav-user { color: var(--muted); font-size: 0.92rem; }
+.nav-logout { padding: 0.45rem 0.9rem; font-size: 0.9rem; }
+
+/* Gift cards (gjafabref). */
+.gift-perks { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 10px; }
+.gift-perks li {
+  position: relative;
+  padding: 12px 16px 12px 42px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: #d6e0d8;
+}
+.gift-perks li::before {
+  content: "";
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  width: 12px;
+  height: 7px;
+  border-left: 2px solid var(--accent);
+  border-bottom: 2px solid var(--accent);
+  transform: translateY(-65%) rotate(-45deg);
+}
+.gift-purchase,
+.gift-redeem,
+.gift-detail {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 26px;
+  margin-top: 20px;
+}
+.gift-form { display: grid; gap: 14px; margin-top: 14px; }
+.gift-form label { display: grid; gap: 6px; color: var(--muted); font-size: 0.9rem; }
+.gift-status { margin: 14px 0 0; color: var(--muted); }
+.gift-note { color: var(--muted); font-size: 0.92rem; }
+.detail-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.detail-list li { display: flex; justify-content: space-between; gap: 16px; padding: 10px 0; border-bottom: 1px solid var(--border); }
+.detail-list li span:first-child { color: var(--muted); }
+.admin-form-wrap {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  margin-top: 16px;
+}
