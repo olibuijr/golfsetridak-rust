@@ -18,7 +18,8 @@
 pub mod settings;
 
 use crate::auth;
-use crate::booking::{Booking, Store as BookingStore};
+use crate::booking::{self, Booking, Store as BookingStore};
+use crate::checkout::Store as CheckoutStore;
 use akurai_http::form::{field, parse_urlencoded};
 use akurai_http::{Method, Request, Response};
 use akurai_json::Value;
@@ -58,15 +59,39 @@ pub fn admin_home_redirect() -> Response {
     Response::new(302).with_header("Location", "/admin/bookings")
 }
 
-/// Render the bookings administration page. The full bookings table is Phase-3
-/// (SQL) work — this renders the shell with the live system-wide counts.
+/// Build the per-row view for a booking. The store holds no customer name/phone
+/// — `user_id` is the booking user's email, so that is shown honestly under the
+/// "Notandi" column and the phone is left blank rather than fabricated.
+fn booking_row(b: &Booking) -> Value {
+    let starts_at = format!(
+        "{} {:02}:00",
+        booking::time::date_string(b.starts_at),
+        booking::time::hour_of(b.starts_at),
+    );
+    Value::Object(vec![
+        ("userName".into(), Value::Str(b.user_id.clone())),
+        ("userPhone".into(), Value::Str(String::new())),
+        ("startsAt".into(), Value::Str(starts_at)),
+        ("status".into(), Value::Str(b.status.clone())),
+        (
+            "priceLabel".into(),
+            Value::Str(crate::serve::format_isk(b.price_paid.unwrap_or(0))),
+        ),
+    ])
+}
+
+/// Render the bookings administration page with the live booking rows
+/// (newest-first) plus the system-wide counts.
 pub fn admin_bookings_page(
     root: &Path,
     store: &BookingStore,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
-    let totals = booking_totals(&store.all_bookings());
+    let mut bookings = store.all_bookings();
+    let totals = booking_totals(&bookings);
+    bookings.sort_by(|a, b| b.starts_at.cmp(&a.starts_at));
+    let rows: Vec<Value> = bookings.iter().map(booking_row).collect();
     crate::serve::render(
         root,
         "admin_bookings",
@@ -81,20 +106,46 @@ pub fn admin_bookings_page(
                 Value::Int(totals.confirmed_bookings),
             ),
             ("revenue".into(), Value::Int(totals.revenue)),
-            ("bookings".into(), Value::Array(vec![])),
+            ("bookings".into(), Value::Array(rows)),
         ],
         auth,
         req,
     )
 }
 
-/// Render the payments administration page (pending bank transfers shell).
+/// Render the payments administration page: pending bank transfers awaiting
+/// manual confirmation (`provider = "bank_transfer"`, `status = "pending"`),
+/// newest-first. The store has no separate customer name, so `user_id` (the
+/// payer's email) is shown honestly rather than a fabricated name.
 pub fn admin_payments_page(
     root: &Path,
-    _store: &BookingStore,
+    checkout: &CheckoutStore,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
+    let mut payments: Vec<_> = checkout
+        .all_payments()
+        .into_iter()
+        .filter(|p| p.provider == "bank_transfer" && p.status == "pending")
+        .collect();
+    payments.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    let rows: Vec<Value> = payments
+        .iter()
+        .map(|p| {
+            Value::Object(vec![
+                ("customerName".into(), Value::Str(p.user_id.clone())),
+                ("providerRef".into(), Value::Str(p.provider_ref.clone())),
+                (
+                    "amountLabel".into(),
+                    Value::Str(crate::serve::format_isk(p.amount)),
+                ),
+                (
+                    "createdAt".into(),
+                    Value::Str(booking::time::date_string(p.created_at)),
+                ),
+            ])
+        })
+        .collect();
     crate::serve::render(
         root,
         "admin_payments",
@@ -103,7 +154,7 @@ pub fn admin_payments_page(
                 "page_title".into(),
                 Value::Str("Greiðslur — Stjórnborð".into()),
             ),
-            ("payments".into(), Value::Array(vec![])),
+            ("payments".into(), Value::Array(rows)),
         ],
         auth,
         req,

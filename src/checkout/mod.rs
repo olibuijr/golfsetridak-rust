@@ -160,6 +160,12 @@ impl Store {
         payment_by_id(&mut t.payments, id)
     }
 
+    /// Every payment in the store, in scan order (admin payments view).
+    pub fn all_payments(&self) -> Vec<Payment> {
+        let mut t = self.lock();
+        all_payments(&mut t.payments)
+    }
+
     /// The payment for a `(cart, providerRef)` pair (the source's unique key).
     pub fn by_cart_and_ref(&self, cart_id: &str, provider_ref: &str) -> Option<Payment> {
         let mut t = self.lock();

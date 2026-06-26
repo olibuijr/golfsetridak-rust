@@ -418,7 +418,7 @@ fn dispatch(
             if !auth.require_role(req, auth::Role::Admin) {
                 return Response::new(302).with_header("Location", "/login");
             }
-            crate::admin::admin_payments_page(root, store, auth, req)
+            crate::admin::admin_payments_page(root, checkout_store, auth, req)
         }
         "/admin/users" => {
             if !auth.require_role(req, auth::Role::Admin) {
@@ -2196,7 +2196,7 @@ fn calendar_page(root: &Path, store: &BookingStore, auth: &auth::State, req: &Re
 
 /// Format an ISK amount with thousands separators and a `kr` suffix, matching
 /// the source's `formatPrice` (e.g. `3500` → `3.500 kr`).
-fn format_isk(amount: i64) -> String {
+pub(crate) fn format_isk(amount: i64) -> String {
     let neg = amount < 0;
     let digits = amount.unsigned_abs().to_string();
     let mut out = String::new();
