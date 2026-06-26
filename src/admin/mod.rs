@@ -90,7 +90,7 @@ pub fn admin_bookings_page(
 ) -> Response {
     let mut bookings = store.all_bookings();
     let totals = booking_totals(&bookings);
-    bookings.sort_by(|a, b| b.starts_at.cmp(&a.starts_at));
+    bookings.sort_by_key(|b| std::cmp::Reverse(b.starts_at));
     let rows: Vec<Value> = bookings.iter().map(booking_row).collect();
     crate::serve::render(
         root,
@@ -128,7 +128,7 @@ pub fn admin_payments_page(
         .into_iter()
         .filter(|p| p.provider == "bank_transfer" && p.status == "pending")
         .collect();
-    payments.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+    payments.sort_by_key(|p| std::cmp::Reverse(p.created_at));
     let rows: Vec<Value> = payments
         .iter()
         .map(|p| {
