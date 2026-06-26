@@ -17,6 +17,7 @@ use crate::auth;
 use crate::booking::{self, Store as BookingStore};
 use crate::cart::{self, Store as CartStore};
 use crate::content;
+use crate::giftcards::{self, IssueParams, Store as GiftCardStore};
 use crate::mime;
 use crate::shop::{self, Store as ShopStore};
 use akurai_http::form::{field, parse_urlencoded};
@@ -67,6 +68,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
     let shop_store = Arc::new(ShopStore::open(&shop_data_dir(&root))?);
     let cart_store = Arc::new(CartStore::open(&cart_data_dir(&root))?);
     let settings_store = Arc::new(crate::admin::settings::Store::open(&admin_data_dir(&root))?);
+    let giftcard_store = Arc::new(GiftCardStore::open(&giftcard_data_dir(&root))?);
 
     // Auth stores live under data/auth/ (sibling of data/booking/).
     let auth_data = data_dir
@@ -82,6 +84,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
     println!("  cart db: {}", cart_data_dir(&root).display());
     println!("  admin db: {}", admin_data_dir(&root).display());
     println!("  → http://{local}");
+    println!("  giftcards db: {}", giftcard_data_dir(&root).display());
     println!("  utilities.css: served at /utilities.css");
 
     // Outermost first: security headers stamp every reply, then logging + timing.
@@ -97,6 +100,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
             &shop_store,
             &cart_store,
             &settings_store,
+            &giftcard_store,
             &auth,
             req,
         )
@@ -139,6 +143,13 @@ fn admin_data_dir(frontend_dir: &Path) -> PathBuf {
         .parent()
         .map(|p| p.join("data/admin"))
         .unwrap_or_else(|| frontend_dir.join("data/admin"))
+}
+
+fn giftcard_data_dir(frontend_dir: &Path) -> PathBuf {
+    frontend_dir
+        .parent()
+        .map(|p| p.join("data/giftcards"))
+        .unwrap_or_else(|| frontend_dir.join("data/giftcards"))
 }
 
 /// Seed a demo user, a klippikort package grant (`slots` slots) and an active
@@ -192,9 +203,14 @@ fn dispatch_reply(
     shop_store: &ShopStore,
     cart_store: &CartStore,
     settings_store: &crate::admin::settings::Store,
+    giftcard_store: &GiftCardStore,
     auth: &auth::State,
     req: &Request,
 ) -> Reply {
+    // Tick the gift-card delivery scheduler on every request. For the low-traffic
+    // golf-club context this is adequate — no separate timer thread required.
+    let _ = giftcard_store.run_delivery_scheduler(now_ms());
+
     let path = req.path.as_str();
     match path {
         "/login" => auth::login(auth, root, req, store),
@@ -205,6 +221,7 @@ fn dispatch_reply(
             shop_store,
             cart_store,
             settings_store,
+            giftcard_store,
             auth,
             req,
         )),
@@ -219,6 +236,7 @@ fn dispatch(
     shop_store: &ShopStore,
     cart_store: &CartStore,
     settings_store: &crate::admin::settings::Store,
+    giftcard_store: &GiftCardStore,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
@@ -251,6 +269,26 @@ fn dispatch(
         "/api/cart" => api_cart(cart_store, req, auth),
         "/api/cart/items" => api_cart_items(store, shop_store, cart_store, req, None, auth),
         "/api/cart/items/bulk" => api_cart_items_bulk(store, shop_store, cart_store, req, auth),
+
+        // Gift card API (Phase 3). Public lookup + redeem; admin issuance/listing gated.
+        "/api/cart/gift-card/lookup" => api_giftcard_lookup(giftcard_store, cart_store, req),
+        "/api/cart/gift-card/redeem" => api_giftcard_redeem(giftcard_store, cart_store, req),
+        "/api/admin/gift-cards" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_admin_giftcards(giftcard_store, req, None)
+        }
+        p if p.starts_with("/api/admin/gift-cards/") => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_admin_giftcards(
+                giftcard_store,
+                req,
+                Some(slug_of(p, "/api/admin/gift-cards/")),
+            )
+        }
         p if p.starts_with("/api/admin/shop/products/") => {
             if !auth.require_role(req, auth::Role::Admin) {
                 return json(401, &error_value("Unauthorized"));
@@ -378,6 +416,33 @@ fn dispatch(
                 return Response::new(302).with_header("Location", "/login");
             }
             crate::admin::admin_announcements_page(root, store, auth, req)
+        }
+
+        // Gift card pages. Public purchase page + admin issuance/tracking.
+        "/gjafabref" => giftcard_page(root, auth, req),
+        "/admin/gift-cards" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            admin_giftcards_page(root, giftcard_store, auth, req)
+        }
+        "/admin/gift-cards/new" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            admin_giftcard_new_page(root, auth, req)
+        }
+        p if p.starts_with("/admin/gift-cards/") => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            admin_giftcard_detail_page(
+                root,
+                giftcard_store,
+                slug_of(p, "/admin/gift-cards/"),
+                auth,
+                req,
+            )
         }
 
         // Unknown API routes are a hard JSON 404, never an HTML fallback.
@@ -1260,6 +1325,308 @@ fn user_cart_id(email: &str) -> String {
     format!("u-{}", &slug[..slug.len().min(90)])
 }
 
+// ---- gift card API --------------------------------------------------------
+
+/// Serialize a gift card to camelCase JSON (mirroring the source API). Includes
+/// a formatted ISK label for `amount`/`balance` for direct template use.
+fn giftcard_value(card: &giftcards::GiftCard) -> Value {
+    let opt_str = |o: &Option<String>| o.clone().map(Value::Str).unwrap_or(Value::Null);
+    let opt_int = |o: Option<i64>| o.map(Value::Int).unwrap_or(Value::Null);
+    Value::Object(vec![
+        ("id".into(), Value::Str(card.id.clone())),
+        ("code".into(), Value::Str(card.code.clone())),
+        ("amount".into(), Value::Int(card.amount)),
+        (
+            "amountLabel".into(),
+            Value::Str(shop::format_isk(card.amount)),
+        ),
+        ("balance".into(), Value::Int(card.balance)),
+        (
+            "balanceLabel".into(),
+            Value::Str(shop::format_isk(card.balance)),
+        ),
+        ("currency".into(), Value::Str(card.currency.clone())),
+        ("status".into(), Value::Str(card.status.clone())),
+        ("expiresAt".into(), opt_int(card.expires_at)),
+        ("deliveryAt".into(), opt_int(card.delivery_at)),
+        ("deliveredAt".into(), opt_int(card.delivered_at)),
+        ("recipientEmail".into(), opt_str(&card.recipient_email)),
+        ("recipientPhone".into(), opt_str(&card.recipient_phone)),
+        ("recipientName".into(), opt_str(&card.recipient_name)),
+        ("message".into(), opt_str(&card.message)),
+        ("createdAt".into(), Value::Int(card.created_at)),
+    ])
+}
+
+/// `POST /api/cart/gift-card/lookup` — public lookup of a code against the
+/// active cart. Returns the card balance plus how much would apply to the cart
+/// subtotal. Errors (not found / inactive / expired / depleted) return 200 with
+/// `{ ok: false, reason }`, mirroring the source route.
+fn api_giftcard_lookup(store: &GiftCardStore, cart_store: &CartStore, req: &Request) -> Response {
+    if req.method != Method::Post {
+        return json(405, &error_value("method not allowed"));
+    }
+    let body = body_json(req).unwrap_or(Value::Object(vec![]));
+    let raw_code = body.get("code").and_then(Value::as_str).unwrap_or("");
+    let code = GiftCardStore::normalize_code(raw_code);
+    if code.is_empty() {
+        return json(
+            200,
+            &Value::Object(vec![
+                ("ok".into(), Value::Bool(false)),
+                ("reason".into(), Value::Str("not_found".into())),
+            ]),
+        );
+    }
+
+    let card = match store.lookup(&code, now_ms()) {
+        Ok(card) => card,
+        Err(reason) => {
+            return json(
+                200,
+                &Value::Object(vec![
+                    ("ok".into(), Value::Bool(false)),
+                    ("reason".into(), Value::Str(reason.as_str().into())),
+                ]),
+            );
+        }
+    };
+
+    // Resolve the active cart subtotal (anonymous cookie cart or user cart).
+    let effective_id = cart::cookie_cart_id(req);
+    let subtotal = cart_store
+        .get_or_create_open(effective_id.as_deref(), now_ms())
+        .map(|(summary, _)| summary.subtotal)
+        .unwrap_or(0);
+    let applied = card.balance.min(subtotal);
+    let remaining = subtotal - applied;
+
+    json(
+        200,
+        &Value::Object(vec![
+            ("ok".into(), Value::Bool(true)),
+            (
+                "card".into(),
+                Value::Object(vec![
+                    ("code".into(), Value::Str(card.code.clone())),
+                    ("balance".into(), Value::Int(card.balance)),
+                    (
+                        "balanceLabel".into(),
+                        Value::Str(shop::format_isk(card.balance)),
+                    ),
+                    ("currency".into(), Value::Str(card.currency.clone())),
+                ]),
+            ),
+            ("cartSubtotal".into(), Value::Int(subtotal)),
+            ("applied".into(), Value::Int(applied)),
+            ("remaining".into(), Value::Int(remaining)),
+        ]),
+    )
+}
+
+/// `POST /api/cart/gift-card/redeem` — apply a gift card to the active cart.
+///
+/// Body: `{ "code": "GOLF-XXXX-XXXX-XXXX", "cartTotal": 15000 }`
+///
+/// Returns the applied amount, remaining card balance, and remaining cart total
+/// so the checkout flow can display the discount breakdown to the user.
+fn api_giftcard_redeem(store: &GiftCardStore, cart_store: &CartStore, req: &Request) -> Response {
+    if req.method != Method::Post {
+        return json(405, &error_value("method not allowed"));
+    }
+    let body = body_json(req).unwrap_or(Value::Object(vec![]));
+    let raw_code = body.get("code").and_then(Value::as_str).unwrap_or("");
+    let code = GiftCardStore::normalize_code(raw_code);
+    if code.is_empty() {
+        return json(
+            400,
+            &Value::Object(vec![
+                ("ok".into(), Value::Bool(false)),
+                ("reason".into(), Value::Str("not_found".into())),
+            ]),
+        );
+    }
+
+    // Use the provided cartTotal, or fall back to the active cart subtotal.
+    let cart_total = match body.get("cartTotal").and_then(Value::as_i64) {
+        Some(n) if n > 0 => n,
+        _ => {
+            let effective_id = cart::cookie_cart_id(req);
+            cart_store
+                .get_or_create_open(effective_id.as_deref(), now_ms())
+                .map(|(summary, _)| summary.subtotal)
+                .unwrap_or(0)
+        }
+    };
+
+    let cart_id = body
+        .get("cartId")
+        .and_then(Value::as_str)
+        .map(|s| s.to_string());
+
+    match store.redeem(&code, cart_total, cart_id.as_deref(), None, now_ms()) {
+        Ok(result) => json(
+            200,
+            &Value::Object(vec![
+                ("ok".into(), Value::Bool(true)),
+                ("giftCardId".into(), Value::Str(result.gift_card_id)),
+                ("applied".into(), Value::Int(result.applied)),
+                (
+                    "appliedLabel".into(),
+                    Value::Str(shop::format_isk(result.applied)),
+                ),
+                (
+                    "remainingBalance".into(),
+                    Value::Int(result.remaining_balance),
+                ),
+                (
+                    "remainingCartTotal".into(),
+                    Value::Int(result.remaining_cart_total),
+                ),
+            ]),
+        ),
+        Err(reason) => json(
+            200,
+            &Value::Object(vec![
+                ("ok".into(), Value::Bool(false)),
+                ("reason".into(), Value::Str(reason.as_str().into())),
+            ]),
+        ),
+    }
+}
+
+/// `GET /api/admin/gift-cards` lists all cards (or one when an id is in the
+/// path). `POST /api/admin/gift-cards` issues one or more cards (admin only;
+/// gating is done by the caller). Supports bulk issuance via `count`.
+fn api_admin_giftcards(store: &GiftCardStore, req: &Request, path_id: Option<&str>) -> Response {
+    match req.method {
+        Method::Get => {
+            if let Some(id) = path_id {
+                return match store.get_by_id(id) {
+                    Some(card) => {
+                        let redemptions: Vec<Value> = store
+                            .redemptions_for_card(&card.id)
+                            .iter()
+                            .map(redemption_value)
+                            .collect();
+                        json(
+                            200,
+                            &Value::Object(vec![
+                                ("card".into(), giftcard_value(&card)),
+                                ("redemptions".into(), Value::Array(redemptions)),
+                            ]),
+                        )
+                    }
+                    None => json(404, &error_value("not found")),
+                };
+            }
+            let cards: Vec<Value> = store.list_all().iter().map(giftcard_value).collect();
+            json(
+                200,
+                &Value::Object(vec![("giftCards".into(), Value::Array(cards))]),
+            )
+        }
+        Method::Post => {
+            let body = match body_json(req) {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            let Some(amount) = int_field(&body, "amount").filter(|n| *n > 0) else {
+                return json(400, &error_value("amount must be a positive integer"));
+            };
+            // Optional recipient email validation (mirrors the source check).
+            let recipient_email = str_field(&body, "recipientEmail");
+            if let Some(email) = recipient_email {
+                if !valid_email(email) {
+                    return json(400, &error_value("invalid recipient email"));
+                }
+            }
+            let now = now_ms();
+            // Expiry/delivery must be in the future when set.
+            let expires_at = int_field(&body, "expiresAt").filter(|n| *n > 0);
+            if let Some(exp) = expires_at {
+                if exp <= now {
+                    return json(400, &error_value("expiresAt must be in the future"));
+                }
+            }
+            let delivery_at = int_field(&body, "deliveryAt").filter(|n| *n > 0);
+            let recipient_name = str_field(&body, "recipientName");
+            let recipient_phone = str_field(&body, "recipientPhone");
+            let message = str_field(&body, "message");
+            let currency = str_field(&body, "currency");
+
+            // Bulk issuance: `count` cards (default 1, capped at 100).
+            let count = int_field(&body, "count").unwrap_or(1).clamp(1, 100);
+            let mut issued = Vec::new();
+            for _ in 0..count {
+                match store.issue(
+                    IssueParams {
+                        amount,
+                        currency,
+                        purchased_by_user_id: None,
+                        cart_id: None,
+                        recipient_email,
+                        recipient_phone,
+                        recipient_name,
+                        message,
+                        expires_at,
+                        delivery_at,
+                    },
+                    now,
+                ) {
+                    Ok((id, code)) => issued.push(Value::Object(vec![
+                        ("id".into(), Value::Str(id)),
+                        ("code".into(), Value::Str(code)),
+                    ])),
+                    Err(e) => return json(500, &error_value(&e)),
+                }
+            }
+
+            // Single issuance returns the card directly; bulk returns the list.
+            if count == 1 {
+                json(
+                    201,
+                    &Value::Object(vec![("giftCard".into(), issued.remove(0))]),
+                )
+            } else {
+                json(
+                    201,
+                    &Value::Object(vec![("giftCards".into(), Value::Array(issued))]),
+                )
+            }
+        }
+        _ => json(405, &error_value("method not allowed")),
+    }
+}
+
+/// Serialize one redemption record to camelCase JSON.
+fn redemption_value(r: &giftcards::GiftCardRedemption) -> Value {
+    let opt_str = |o: &Option<String>| o.clone().map(Value::Str).unwrap_or(Value::Null);
+    Value::Object(vec![
+        ("id".into(), Value::Str(r.id.clone())),
+        ("giftCardId".into(), Value::Str(r.gift_card_id.clone())),
+        ("cartId".into(), opt_str(&r.cart_id)),
+        ("paymentId".into(), opt_str(&r.payment_id)),
+        ("amount".into(), Value::Int(r.amount)),
+        ("amountLabel".into(), Value::Str(shop::format_isk(r.amount))),
+        ("redeemedAt".into(), Value::Int(r.redeemed_at)),
+    ])
+}
+
+/// Minimal email shape check (mirrors the source `^[^\s@]+@[^\s@]+\.[^\s@]+$`).
+fn valid_email(email: &str) -> bool {
+    let mut parts = email.split('@');
+    let (Some(local), Some(domain), None) = (parts.next(), parts.next(), parts.next()) else {
+        return false;
+    };
+    !local.is_empty()
+        && !local.contains(char::is_whitespace)
+        && domain.contains('.')
+        && !domain.contains(char::is_whitespace)
+        && !domain.starts_with('.')
+        && !domain.ends_with('.')
+}
+
 fn cart_json(status: u16, summary: &cart::CartSummary, set_cookie: bool) -> Response {
     let resp = json(
         status,
@@ -1608,6 +1975,98 @@ fn admin_product_form_page(
                 "form_title".into(),
                 Value::Str(if is_edit { "Breyta vöru" } else { "Ný vara" }.into()),
             ),
+        ],
+        auth,
+        req,
+    )
+}
+
+// ---- gift card pages ------------------------------------------------------
+
+/// Public gift card purchase page (`/gjafabref`).
+fn giftcard_page(root: &Path, auth: &auth::State, req: &Request) -> Response {
+    render(
+        root,
+        "gjafabref",
+        vec![(
+            "page_title".into(),
+            Value::Str("Gjafabréf — Golfsetrið Akureyri".into()),
+        )],
+        auth,
+        req,
+    )
+}
+
+/// Admin gift card listing + tracking (`/admin/gift-cards`).
+fn admin_giftcards_page(
+    root: &Path,
+    store: &GiftCardStore,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
+    let mut cards = store.list_all();
+    // Newest first by creation time.
+    cards.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(a.id.cmp(&b.id)));
+    let card_values: Vec<Value> = cards.iter().map(giftcard_value).collect();
+    render(
+        root,
+        "admin_giftcards",
+        vec![
+            (
+                "page_title".into(),
+                Value::Str("Gjafabréf — Stjórnborð".into()),
+            ),
+            ("giftCards".into(), Value::Array(card_values)),
+            ("has_cards".into(), Value::Bool(!cards.is_empty())),
+        ],
+        auth,
+        req,
+    )
+}
+
+/// Admin gift card issuance form (`/admin/gift-cards/new`).
+fn admin_giftcard_new_page(root: &Path, auth: &auth::State, req: &Request) -> Response {
+    render(
+        root,
+        "admin_giftcard_form",
+        vec![(
+            "page_title".into(),
+            Value::Str("Útgefa gjafabréf — Stjórnborð".into()),
+        )],
+        auth,
+        req,
+    )
+}
+
+/// Admin gift card detail + redemption history (`/admin/gift-cards/:id`).
+fn admin_giftcard_detail_page(
+    root: &Path,
+    store: &GiftCardStore,
+    id: &str,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
+    let card = match store.get_by_id(id) {
+        Some(card) => card,
+        None => return not_found_page(root, auth, req),
+    };
+    let redemptions: Vec<Value> = store
+        .redemptions_for_card(&card.id)
+        .iter()
+        .map(redemption_value)
+        .collect();
+    let has_redemptions = !redemptions.is_empty();
+    render(
+        root,
+        "admin_giftcard_detail",
+        vec![
+            (
+                "page_title".into(),
+                Value::Str(format!("Gjafabréf {} — Stjórnborð", card.code)),
+            ),
+            ("card".into(), giftcard_value(&card)),
+            ("redemptions".into(), Value::Array(redemptions)),
+            ("has_redemptions".into(), Value::Bool(has_redemptions)),
         ],
         auth,
         req,

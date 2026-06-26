@@ -1,0 +1,48 @@
+{% include "header" %}
+    <section class="admin-head">
+      <div>
+        <span class="eyebrow">Stjórnborð</span>
+        <h1>Gjafabréf</h1>
+        <p class="lede">Útgefin gjafabréf og innlausnasaga.</p>
+      </div>
+      <div class="btn-row">
+        <a class="btn btn-primary" href="/admin/gift-cards/new">Útgefa gjafabréf</a>
+      </div>
+    </section>
+
+    <section class="admin-table-wrap">
+      {% if has_cards %}
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Kóði</th>
+            <th>Upphæð</th>
+            <th>Inneign</th>
+            <th>Staða</th>
+            <th>Móttakandi</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for card in giftCards %}
+          <tr>
+            <td><strong>{{ card.code }}</strong></td>
+            <td>{{ card.amountLabel }}</td>
+            <td>{{ card.balanceLabel }}</td>
+            <td><span class="status-pill">{{ card.status }}</span></td>
+            <td>{% if card.recipientName %}{{ card.recipientName }}{% else %}{% if card.recipientEmail %}{{ card.recipientEmail }}{% else %}<span class="muted">—</span>{% endif %}{% endif %}</td>
+            <td class="table-actions">
+              <a class="btn btn-secondary" href="/admin/gift-cards/{{ card.id }}">Skoða</a>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <h2>Engin gjafabréf enn</h2>
+        <p>Gefðu út gjafabréf til að sjá það hér.</p>
+      </div>
+      {% endif %}
+    </section>
+{% include "footer" %}
