@@ -25,6 +25,15 @@
       <nav class="nav-links">
         {% for link in nav %}<a href="{{ link.href }}">{{ link.label }}</a>{% endfor %}
       </nav>
-      <a class="btn btn-primary nav-login" href="/my">Mínar síður</a>
+      {% if auth_user_email %}
+      <div class="nav-auth">
+        <span class="nav-user">{{ auth_user_email }}</span>
+        <form method="post" action="/logout" style="display:inline">
+          <button class="btn btn-ghost nav-logout" type="submit">Útskrá</button>
+        </form>
+      </div>
+      {% else %}
+      <a class="btn btn-primary nav-login" href="/login">Innskrá</a>
+      {% endif %}
     </header>
     <main class="container">

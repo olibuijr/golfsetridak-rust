@@ -15,3 +15,5 @@
 
 # Agent worktrees / local tooling
 .claude/
+
+.cargo/

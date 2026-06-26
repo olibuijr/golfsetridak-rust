@@ -13,6 +13,7 @@
 //! The remaining dynamic pages (shop, account, admin) still render "coming soon"
 //! placeholders — see PORT.md.
 
+use crate::auth;
 use crate::booking::{self, Store};
 use crate::content;
 use crate::mime;
@@ -62,6 +63,13 @@ pub fn run(cfg: Config) -> io::Result<()> {
     let data_dir = data_dir(&root);
     let store = Arc::new(Store::open(&data_dir)?);
 
+    // Auth stores live under data/auth/ (sibling of data/booking/).
+    let auth_data = data_dir
+        .parent()
+        .map(|p| p.join("auth"))
+        .unwrap_or_else(|| data_dir.join("auth"));
+    let auth = Arc::new(auth::State::open(&auth_data)?);
+
     println!("Golfsetrið Akureyri — golfsetridak v{VERSION} (on AkurAI-Framework)");
     println!("  serving {}", root.display());
     println!("  booking db: {}", data_dir.display());
@@ -75,7 +83,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
         .push(Timing);
 
     server.run_with(middleware, move |req: &Request| {
-        Reply::Response(dispatch(&root, &store, req))
+        dispatch_reply(&root, &store, &auth, req)
     })
 }
 
@@ -137,33 +145,43 @@ pub fn seed_demo(frontend_dir: &Path, slots: i64) -> io::Result<()> {
     Ok(())
 }
 
+/// Top-level reply dispatcher — handles auth routes before content routes.
+fn dispatch_reply(root: &Path, store: &Store, auth: &auth::State, req: &Request) -> Reply {
+    let path = req.path.as_str();
+    match path {
+        "/login" => auth::login(auth, root, req, store),
+        "/logout" => auth::logout(auth, req),
+        _ => Reply::Response(dispatch(root, store, auth, req)),
+    }
+}
+
 /// Route one request to a buffered response. `root` is the `frontend/` dir.
-fn dispatch(root: &Path, store: &Store, req: &Request) -> Response {
+fn dispatch(root: &Path, store: &Store, auth: &auth::State, req: &Request) -> Response {
     let path = req.path.as_str();
     match path {
         "/utilities.css" => utilities(root),
         "/api/health" => json(200, &health()),
 
         // Booking API (Phase 3). Methods are checked inside each handler.
-        "/api/availability" => api_availability(store, req),
-        "/api/slot-price" => api_slot_price(store, req),
-        "/api/book" => api_book(store, req),
-        "/api/bookings" => api_bookings(store, req),
+        "/api/availability" => api_availability(store, req, auth),
+        "/api/slot-price" => api_slot_price(store, req, auth),
+        "/api/book" => api_book(store, req, auth),
+        "/api/bookings" => api_bookings(store, req, auth),
 
         // Home: the server-rendered booking calendar (replaces the placeholder).
-        "/" => calendar_page(root, store),
+        "/" => calendar_page(root, store, auth, req),
 
         // Markdown content pages — handled explicitly (mirrors the framework's
         // explicit `/changelog` and `/docs/*` routes).
-        "/frettir" => news_list(root),
-        p if p.starts_with("/frettir/") => news_detail(root, slug_of(p, "/frettir/")),
-        "/notendahandbok" => handbook_list(root),
+        "/frettir" => news_list(root, auth, req),
+        p if p.starts_with("/frettir/") => news_detail(root, slug_of(p, "/frettir/"), auth, req),
+        "/notendahandbok" => handbook_list(root, auth, req),
         p if p.starts_with("/notendahandbok/") => {
-            handbook_detail(root, slug_of(p, "/notendahandbok/"))
+            handbook_detail(root, slug_of(p, "/notendahandbok/"), auth, req)
         }
-        "/personuvernd" => legal(root, "personuvernd"),
-        "/skilmalar" => legal(root, "skilmalar"),
-        "/um-okkur" => about(root),
+        "/personuvernd" => legal(root, "personuvernd", auth, req),
+        "/skilmalar" => legal(root, "skilmalar", auth, req),
+        "/um-okkur" => about(root, auth, req),
 
         // Unknown API routes are a hard JSON 404, never an HTML fallback.
         p if p.starts_with("/api/") => json(404, &error_value("not found")),
@@ -173,7 +191,7 @@ fn dispatch(root: &Path, store: &Store, req: &Request) -> Response {
 
         // Everything else is a declarative page from routes.json (the remaining
         // placeholders for the dynamic pages that arrive in later phases).
-        p => render_page_routed(root, p),
+        p => render_page_routed(root, p, auth, req),
     }
 }
 
@@ -187,24 +205,16 @@ fn query_pairs(req: &Request) -> Vec<(String, String)> {
         .unwrap_or_default()
 }
 
-/// Resolve the acting user id. **Auth seam:** real session/cookie auth lands in
-/// a later phase (see PORT.md "Phase 2 — auth"); for now the user id is taken
-/// from the request (`userId` query param, or `userId` in the JSON body). This
-/// is the single place to swap in session resolution later.
-fn resolve_user_id(req: &Request, body: Option<&Value>) -> Option<String> {
-    if let Some(uid) = field(&query_pairs(req), "userId") {
-        if !uid.is_empty() {
-            return Some(uid.to_string());
-        }
-    }
-    body.and_then(|b| b.get("userId"))
-        .and_then(Value::as_str)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+/// Resolve the acting user id from the session cookie.
+///
+/// The session email is the stable user id used by the booking store. Returns
+/// `None` when unauthenticated, causing the booking APIs to respond with 401.
+fn resolve_user_id(req: &Request, _body: Option<&Value>, auth: &auth::State) -> Option<String> {
+    auth.current_user(req).map(|u| u.email)
 }
 
 /// `GET /api/availability?date=YYYY-MM-DD&days=N&userId=X` — slots + prices.
-fn api_availability(store: &Store, req: &Request) -> Response {
+fn api_availability(store: &Store, req: &Request, auth: &auth::State) -> Response {
     if req.method != Method::Get {
         return json(405, &error_value("method not allowed"));
     }
@@ -222,13 +232,13 @@ fn api_availability(store: &Store, req: &Request) -> Response {
         .and_then(|s| s.parse::<i64>().ok())
         .unwrap_or(7)
         .clamp(1, 30);
-    let user = resolve_user_id(req, None);
+    let user = resolve_user_id(req, None, auth);
     let availability = store.availability(start, days, user.as_deref(), now);
     json(200, &availability_value(&availability))
 }
 
 /// `GET /api/slot-price?hour=H&userId=X` — the effective price for an hour.
-fn api_slot_price(store: &Store, req: &Request) -> Response {
+fn api_slot_price(store: &Store, req: &Request, auth: &auth::State) -> Response {
     if req.method != Method::Get {
         return json(405, &error_value("method not allowed"));
     }
@@ -237,7 +247,7 @@ fn api_slot_price(store: &Store, req: &Request) -> Response {
     let Some(hour) = hour.filter(|h| (0..=23).contains(h)) else {
         return json(400, &error_value("hour must be 0-23"));
     };
-    let user = resolve_user_id(req, None);
+    let user = resolve_user_id(req, None, auth);
     let price = store.slot_price(hour, user.as_deref());
     json(
         200,
@@ -247,7 +257,7 @@ fn api_slot_price(store: &Store, req: &Request) -> Response {
 
 /// `POST /api/book` — create a booking. Body: `{ userId, slotTime, paymentType,
 /// userPackageId?, userSubscriptionId?, notes? }`.
-fn api_book(store: &Store, req: &Request) -> Response {
+fn api_book(store: &Store, req: &Request, auth: &auth::State) -> Response {
     if req.method != Method::Post {
         return json(405, &error_value("method not allowed"));
     }
@@ -256,7 +266,7 @@ fn api_book(store: &Store, req: &Request) -> Response {
         Err(_) => return json(400, &error_value("invalid JSON body")),
     };
 
-    let Some(user_id) = resolve_user_id(req, Some(&body)) else {
+    let Some(user_id) = resolve_user_id(req, Some(&body), auth) else {
         return json(401, &error_value("Unauthorized"));
     };
 
@@ -302,11 +312,11 @@ fn api_book(store: &Store, req: &Request) -> Response {
 
 /// `GET /api/bookings?userId=X` lists a user's bookings;
 /// `DELETE /api/bookings?id=B&userId=X` cancels one.
-fn api_bookings(store: &Store, req: &Request) -> Response {
+fn api_bookings(store: &Store, req: &Request, auth: &auth::State) -> Response {
     let q = query_pairs(req);
     match req.method {
         Method::Get => {
-            let Some(user_id) = resolve_user_id(req, None) else {
+            let Some(user_id) = resolve_user_id(req, None, auth) else {
                 return json(401, &error_value("Unauthorized"));
             };
             let list: Vec<Value> = store
@@ -320,7 +330,7 @@ fn api_bookings(store: &Store, req: &Request) -> Response {
             )
         }
         Method::Delete => {
-            let Some(user_id) = resolve_user_id(req, None) else {
+            let Some(user_id) = resolve_user_id(req, None, auth) else {
                 return json(401, &error_value("Unauthorized"));
             };
             let Some(id) = field(&q, "id").filter(|s| !s.is_empty()) else {
@@ -390,7 +400,7 @@ fn booking_value(b: &booking::Booking) -> Value {
 
 // ---- content pages --------------------------------------------------------
 
-fn news_list(root: &Path) -> Response {
+fn news_list(root: &Path, auth: &auth::State, req: &Request) -> Response {
     let items = content::news_items(&content_dir(root));
     render(
         root,
@@ -399,18 +409,20 @@ fn news_list(root: &Path) -> Response {
             ("page_title".into(), Value::Str("Fréttir".into())),
             ("news".into(), Value::Array(items)),
         ],
+        auth,
+        req,
     )
 }
 
-fn news_detail(root: &Path, slug: &str) -> Response {
+fn news_detail(root: &Path, slug: &str, auth: &auth::State, req: &Request) -> Response {
     if !valid_slug(slug) {
-        return not_found_page(root);
+        return not_found_page(root, auth, req);
     }
     let path = content_dir(root).join("frettir").join(format!("{slug}.md"));
-    article(root, &path, "Fréttir")
+    article(root, &path, "Fréttir", auth, req)
 }
 
-fn handbook_list(root: &Path) -> Response {
+fn handbook_list(root: &Path, auth: &auth::State, req: &Request) -> Response {
     let chapters = content::handbook_chapters(&content_dir(root));
     render(
         root,
@@ -419,27 +431,29 @@ fn handbook_list(root: &Path) -> Response {
             ("page_title".into(), Value::Str("Notendahandbók".into())),
             ("chapters".into(), Value::Array(chapters)),
         ],
+        auth,
+        req,
     )
 }
 
-fn handbook_detail(root: &Path, slug: &str) -> Response {
+fn handbook_detail(root: &Path, slug: &str, auth: &auth::State, req: &Request) -> Response {
     if !valid_slug(slug) {
-        return not_found_page(root);
+        return not_found_page(root, auth, req);
     }
     let path = content_dir(root)
         .join("notendahandbok")
         .join(format!("{slug}.md"));
-    article(root, &path, "Notendahandbók")
+    article(root, &path, "Notendahandbók", auth, req)
 }
 
-fn legal(root: &Path, name: &str) -> Response {
+fn legal(root: &Path, name: &str, auth: &auth::State, req: &Request) -> Response {
     let path = content_dir(root).join("legal").join(format!("{name}.md"));
-    article(root, &path, "")
+    article(root, &path, "", auth, req)
 }
 
-fn about(root: &Path) -> Response {
+fn about(root: &Path, auth: &auth::State, req: &Request) -> Response {
     let path = content_dir(root).join("um-okkur.md");
-    article(root, &path, "")
+    article(root, &path, "", auth, req)
 }
 
 // ---- booking calendar page ------------------------------------------------
@@ -451,7 +465,7 @@ const DAY_NAMES: [&str; 7] = ["Sun", "Mán", "Þri", "Mið", "Fim", "Fös", "Lau
 /// Render the home booking calendar: availability + pricing across the booking
 /// window (14 days for an anonymous visitor, mirroring `getBookingWindowEnd`).
 /// Server-rendered — the slots are plain links/markup, no client JS required.
-fn calendar_page(root: &Path, store: &Store) -> Response {
+fn calendar_page(root: &Path, store: &Store, auth: &auth::State, req: &Request) -> Response {
     let now = now_ms();
     let start = booking::time::day_start(now);
     let days = 14; // anonymous default window
@@ -510,6 +524,8 @@ fn calendar_page(root: &Path, store: &Store) -> Response {
             ("calendar_days".into(), Value::Array(day_values)),
             ("pricing_legend".into(), Value::Array(legend)),
         ],
+        auth,
+        req,
     )
 }
 
@@ -532,10 +548,16 @@ fn format_isk(amount: i64) -> String {
 /// Render a single markdown article into the `article` template. The frontmatter
 /// `title`/`date`/`lead`/`lastUpdated` populate the page; the body is converted
 /// to HTML by `akurai_markdown`. A missing file renders the 404 page.
-fn article(root: &Path, md_path: &Path, section: &str) -> Response {
+fn article(
+    root: &Path,
+    md_path: &Path,
+    section: &str,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
     let raw = match fs::read_to_string(md_path) {
         Ok(text) => text,
-        Err(_) => return not_found_page(root),
+        Err(_) => return not_found_page(root, auth, req),
     };
     let doc = content::parse(&raw);
     let body_html = akurai_markdown::to_html(&doc.body);
@@ -559,7 +581,7 @@ fn article(root: &Path, md_path: &Path, section: &str) -> Response {
     if let Some(desc) = doc.get("metaDescription") {
         extra.push(("meta_description".into(), Value::Str(desc.to_string())));
     }
-    render(root, "article", extra)
+    render(root, "article", extra, auth, req)
 }
 
 // ---- declarative routed pages (home + placeholders) -----------------------
@@ -572,17 +594,23 @@ struct RouteDef {
     title: Option<String>,
 }
 
-fn render_page_routed(root: &Path, path: &str) -> Response {
+fn render_page_routed(root: &Path, path: &str, auth: &auth::State, req: &Request) -> Response {
     match load_routes(root) {
         Some(router) => match router.match_path(path) {
-            Some(m) => render_routed(root, m.value, &m.params),
-            None => not_found_page(root),
+            Some(m) => render_routed(root, m.value, &m.params, auth, req),
+            None => not_found_page(root, auth, req),
         },
-        None => not_found_page(root),
+        None => not_found_page(root, auth, req),
     }
 }
 
-fn render_routed(root: &Path, def: &RouteDef, params: &[(String, String)]) -> Response {
+fn render_routed(
+    root: &Path,
+    def: &RouteDef,
+    params: &[(String, String)],
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
     let mut extra: Vec<(String, Value)> = Vec::new();
 
     // Per-route data file: spread its top-level object keys into the context
@@ -608,7 +636,7 @@ fn render_routed(root: &Path, def: &RouteDef, params: &[(String, String)]) -> Re
     }
 
     extra.push(("params".into(), params_value(params)));
-    render(root, &def.template, extra)
+    render(root, &def.template, extra, auth, req)
 }
 
 /// Load `backend/routes.json` into a router. Mirrors the framework's `routes.rs`
@@ -665,11 +693,21 @@ fn params_value(params: &[(String, String)]) -> Value {
 
 /// Render template `name` with the `page.json` context plus `extra` pairs. A
 /// template or parse error surfaces as a 500 so it is visible in development.
-fn render(root: &Path, name: &str, extra: Vec<(String, Value)>) -> Response {
+fn render(
+    root: &Path,
+    name: &str,
+    mut extra: Vec<(String, Value)>,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
     let engine = match build_engine(root) {
         Ok(engine) => engine,
         Err(msg) => return Response::new(500).with_html(&error_page(&msg)),
     };
+    // Inject the signed-in user email for the header nav.
+    if let Some(user) = auth.current_user(req) {
+        extra.push(("auth_user_email".into(), Value::Str(user.email)));
+    }
     let mut context = load_context(root);
     if let Value::Object(pairs) = &mut context {
         pairs.extend(extra);
@@ -682,11 +720,13 @@ fn render(root: &Path, name: &str, extra: Vec<(String, Value)>) -> Response {
 
 /// Render the 404 page (status 404). Falls back to a bare body if the template
 /// itself is missing or broken.
-fn not_found_page(root: &Path) -> Response {
+fn not_found_page(root: &Path, auth: &auth::State, req: &Request) -> Response {
     let mut resp = render(
         root,
         "notfound",
         vec![("page_title".into(), Value::Str("Síða finnst ekki".into()))],
+        auth,
+        req,
     );
     if resp.status == 200 {
         resp.status = 404;
@@ -856,6 +896,21 @@ fn error_page(message: &str) -> String {
          <h1>Template error</h1><pre style=\"color:#e9efe9\">{escaped}</pre></body>"
     )
 }
+
+// ---------------------------------------------------------------------------
+// Public helpers for the auth module
+// ---------------------------------------------------------------------------
+
+/// Build the template engine from `root`. Called by `auth` to render login.
+pub fn build_engine_pub(root: &Path) -> Result<akurai_template::Engine, String> {
+    build_engine(root)
+}
+
+/// Load `backend/page.json` context. Called by `auth` to merge site globals.
+pub fn load_context_pub(root: &Path) -> Value {
+    load_context(root)
+}
+
 
 #[cfg(test)]
 mod tests {

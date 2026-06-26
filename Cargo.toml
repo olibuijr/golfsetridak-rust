@@ -31,6 +31,9 @@ akurai-css = { path = "../AkurAI-Framework/crates/css" }
 # subscriptions and pricing rules. Slot-start-time keys make the tree's keyed
 # uniqueness the no-double-booking guard (see src/booking).
 akurai-storage = { path = "../AkurAI-Framework/crates/storage" }
+# Phase 4 auth: SHA-1 (RFC 6455) from the WebSocket crate, reused for
+# salted OTP/session hashing — consistent with the framework's own auth.rs.
+akurai-ws = { path = "../AkurAI-Framework/crates/ws" }
 
 # Match the framework's release profile: one small, stripped, fully-optimized
 # static binary.
