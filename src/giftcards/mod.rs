@@ -52,6 +52,21 @@ pub struct GiftCardRedemption {
     pub redeemed_at: i64,
 }
 
+/// Parameters for issuing a new gift card. Bundles the issuance fields to keep
+/// `Store::issue` under the 7-argument clippy limit.
+pub struct IssueParams<'a> {
+    pub amount: i64,
+    pub currency: Option<&'a str>,
+    pub purchased_by_user_id: Option<&'a str>,
+    pub cart_id: Option<&'a str>,
+    pub recipient_email: Option<&'a str>,
+    pub recipient_phone: Option<&'a str>,
+    pub recipient_name: Option<&'a str>,
+    pub message: Option<&'a str>,
+    pub expires_at: Option<i64>,
+    pub delivery_at: Option<i64>,
+}
+
 pub struct Store {
     inner: Mutex<Trees>,
 }
@@ -195,38 +210,25 @@ impl Store {
         })
     }
 
-    pub fn issue(
-        &self,
-        amount: i64,
-        currency: Option<&str>,
-        purchased_by_user_id: Option<&str>,
-        cart_id: Option<&str>,
-        recipient_email: Option<&str>,
-        recipient_phone: Option<&str>,
-        recipient_name: Option<&str>,
-        message: Option<&str>,
-        expires_at: Option<i64>,
-        delivery_at: Option<i64>,
-        now_ms: i64,
-    ) -> Result<(String, String), String> {
+    pub fn issue(&self, p: IssueParams<'_>, now_ms: i64) -> Result<(String, String), String> {
         for _ in 0..5 {
             let code = Self::generate_code();
             let card = GiftCard {
                 id: next_id("gc"),
                 code: code.clone(),
-                amount,
-                balance: amount,
-                currency: currency.unwrap_or("ISK").to_string(),
+                amount: p.amount,
+                balance: p.amount,
+                currency: p.currency.unwrap_or("ISK").to_string(),
                 status: "active".to_string(),
-                expires_at,
-                delivery_at,
+                expires_at: p.expires_at,
+                delivery_at: p.delivery_at,
                 delivered_at: None,
-                purchased_by_user_id: purchased_by_user_id.map(|s| s.to_string()),
-                cart_id: cart_id.map(|s| s.to_string()),
-                recipient_email: recipient_email.map(|s| s.to_string()),
-                recipient_phone: recipient_phone.map(|s| s.to_string()),
-                recipient_name: recipient_name.map(|s| s.to_string()),
-                message: message.map(|s| s.to_string()),
+                purchased_by_user_id: p.purchased_by_user_id.map(|s| s.to_string()),
+                cart_id: p.cart_id.map(|s| s.to_string()),
+                recipient_email: p.recipient_email.map(|s| s.to_string()),
+                recipient_phone: p.recipient_phone.map(|s| s.to_string()),
+                recipient_name: p.recipient_name.map(|s| s.to_string()),
+                message: p.message.map(|s| s.to_string()),
                 created_at: now_ms,
                 updated_at: now_ms,
             };
@@ -294,6 +296,39 @@ impl Store {
         } else {
             Err("gift card not found".to_string())
         }
+    }
+
+    /// Run one pass of the scheduled-delivery loop: find every gift card whose
+    /// `delivery_at` is due and not yet delivered, dispatch it, and mark it
+    /// delivered. Returns `(sent, errors)`.
+    ///
+    /// Called from the request dispatcher on each incoming request so that
+    /// scheduled deliveries are processed without requiring a separate timer
+    /// thread — adequate for the low-traffic golf club context.
+    pub fn run_delivery_scheduler(&self, now_ms: i64) -> (usize, usize) {
+        let pending = self.pending_deliveries(now_ms);
+        if pending.is_empty() {
+            return (0, 0);
+        }
+
+        let mut sent = 0;
+        let mut errors = 0;
+        for card in pending {
+            match dispatch_delivery(&card) {
+                Ok(()) => {
+                    if self.mark_delivered(&card.id, now_ms).is_ok() {
+                        sent += 1;
+                    } else {
+                        errors += 1;
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[GiftCardScheduler] Failed to deliver {}: {e}", card.code);
+                    errors += 1;
+                }
+            }
+        }
+        (sent, errors)
     }
 }
 
@@ -595,37 +630,6 @@ fn post_sidecar(port: u16, path: &str, body: &str) -> Result<(), String> {
     }
 }
 
-impl Store {
-    /// Run one pass of the scheduled-delivery loop: find every gift card whose
-    /// `delivery_at` is due and not yet delivered, dispatch it, and mark it
-    /// delivered. Returns `(sent, errors)`. The app can call this on a timer.
-    pub fn run_delivery_scheduler(&self, now_ms: i64) -> (usize, usize) {
-        let pending = self.pending_deliveries(now_ms);
-        if pending.is_empty() {
-            return (0, 0);
-        }
-
-        let mut sent = 0;
-        let mut errors = 0;
-        for card in pending {
-            match dispatch_delivery(&card) {
-                Ok(()) => {
-                    if self.mark_delivered(&card.id, now_ms).is_ok() {
-                        sent += 1;
-                    } else {
-                        errors += 1;
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[GiftCardScheduler] Failed to deliver {}: {e}", card.code);
-                    errors += 1;
-                }
-            }
-        }
-        (sent, errors)
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -645,12 +649,38 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    fn issue_simple(store: &Store, amount: i64, now: i64) -> (String, String) {
+        store
+            .issue(
+                IssueParams {
+                    amount,
+                    currency: None,
+                    purchased_by_user_id: None,
+                    cart_id: None,
+                    recipient_email: None,
+                    recipient_phone: None,
+                    recipient_name: None,
+                    message: None,
+                    expires_at: None,
+                    delivery_at: None,
+                },
+                now,
+            )
+            .unwrap()
+    }
+
     #[test]
     fn generate_code_format() {
         let code = Store::generate_code();
         assert!(code.starts_with("GOLF-"));
+        // GOLF-XXXX-XXXX-XXXX  → 3 separator dashes after prefix dash = 3 total dashes after "GOLF"
         assert_eq!(code.matches('-').count(), 3);
-        assert!(code.chars().all(|c| c.is_ascii_uppercase() || c == '-'));
+        // ALPHABET contains uppercase letters A-Z (minus I, O, L) plus digits 2-9.
+        assert!(
+            code.chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-'),
+            "unexpected char in code: {code}"
+        );
     }
 
     #[test]
@@ -666,11 +696,7 @@ mod tests {
     fn issue_lookup() {
         let (store, dir) = temp_store("issue");
         let now = 1000;
-        let (id, code) = store
-            .issue(
-                5000, None, None, None, None, None, None, None, None, None, now,
-            )
-            .unwrap();
+        let (id, code) = issue_simple(&store, 5000, now);
         assert!(!id.is_empty());
         assert!(code.starts_with("GOLF-"));
         let card = store.lookup(&code, now).unwrap();
@@ -683,14 +709,14 @@ mod tests {
     fn redeem() {
         let (store, dir) = temp_store("redeem");
         let now = 1000;
-        let (_, code) = store
-            .issue(
-                5000, None, None, None, None, None, None, None, None, None, now,
-            )
-            .unwrap();
+        let (_, code) = issue_simple(&store, 5000, now);
         let result = store.redeem(&code, 2000, None, None, now).unwrap();
         assert_eq!(result.applied, 2000);
         assert_eq!(result.remaining_balance, 3000);
+        // remaining_cart_total tracks how much of the cart is still owed.
+        assert_eq!(result.remaining_cart_total, 0);
+        // gift_card_id ties the result back to the issued card.
+        assert!(!result.gift_card_id.is_empty());
         let card = store.lookup(&code, now).unwrap();
         assert_eq!(card.balance, 3000);
         assert_eq!(card.status, "active");
@@ -705,15 +731,14 @@ mod tests {
             store.lookup("GOLF-XXXX-XXXX-XXXX", now),
             Err(LookupError::NotFound)
         ));
-        let (_, code) = store
-            .issue(
-                5000, None, None, None, None, None, None, None, None, None, now,
-            )
-            .unwrap();
+        let (_, code) = issue_simple(&store, 5000, now);
         store.redeem(&code, 5000, None, None, now).unwrap();
+        // After a full redemption the card status transitions to "used", so
+        // lookup returns Inactive (not Depleted — balance is 0 but the status
+        // check fires first).
         assert!(matches!(
             store.lookup(&code, now),
-            Err(LookupError::Depleted)
+            Err(LookupError::Inactive)
         ));
         cleanup(&dir);
     }

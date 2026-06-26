@@ -17,7 +17,7 @@ use crate::auth;
 use crate::booking::{self, Store as BookingStore};
 use crate::cart::{self, Store as CartStore};
 use crate::content;
-use crate::giftcards::{self, Store as GiftCardStore};
+use crate::giftcards::{self, IssueParams, Store as GiftCardStore};
 use crate::mime;
 use crate::shop::{self, Store as ShopStore};
 use akurai_http::form::{field, parse_urlencoded};
@@ -193,6 +193,10 @@ fn dispatch_reply(
     auth: &auth::State,
     req: &Request,
 ) -> Reply {
+    // Tick the gift-card delivery scheduler on every request. For the low-traffic
+    // golf-club context this is adequate — no separate timer thread required.
+    let _ = giftcard_store.run_delivery_scheduler(now_ms());
+
     let path = req.path.as_str();
     match path {
         "/login" => auth::login(auth, root, req, store),
@@ -247,8 +251,9 @@ fn dispatch(
         "/api/cart/items" => api_cart_items(store, shop_store, cart_store, req, None, auth),
         "/api/cart/items/bulk" => api_cart_items_bulk(store, shop_store, cart_store, req, auth),
 
-        // Gift card API (Phase 3). Public lookup; admin issuance/listing gated.
+        // Gift card API (Phase 3). Public lookup + redeem; admin issuance/listing gated.
         "/api/cart/gift-card/lookup" => api_giftcard_lookup(giftcard_store, cart_store, req),
+        "/api/cart/gift-card/redeem" => api_giftcard_redeem(giftcard_store, cart_store, req),
         "/api/admin/gift-cards" => {
             if !auth.require_role(req, auth::Role::Admin) {
                 return json(401, &error_value("Unauthorized"));
@@ -1198,6 +1203,77 @@ fn api_giftcard_lookup(store: &GiftCardStore, cart_store: &CartStore, req: &Requ
     )
 }
 
+/// `POST /api/cart/gift-card/redeem` — apply a gift card to the active cart.
+///
+/// Body: `{ "code": "GOLF-XXXX-XXXX-XXXX", "cartTotal": 15000 }`
+///
+/// Returns the applied amount, remaining card balance, and remaining cart total
+/// so the checkout flow can display the discount breakdown to the user.
+fn api_giftcard_redeem(store: &GiftCardStore, cart_store: &CartStore, req: &Request) -> Response {
+    if req.method != Method::Post {
+        return json(405, &error_value("method not allowed"));
+    }
+    let body = body_json(req).unwrap_or(Value::Object(vec![]));
+    let raw_code = body.get("code").and_then(Value::as_str).unwrap_or("");
+    let code = GiftCardStore::normalize_code(raw_code);
+    if code.is_empty() {
+        return json(
+            400,
+            &Value::Object(vec![
+                ("ok".into(), Value::Bool(false)),
+                ("reason".into(), Value::Str("not_found".into())),
+            ]),
+        );
+    }
+
+    // Use the provided cartTotal, or fall back to the active cart subtotal.
+    let cart_total = match body.get("cartTotal").and_then(Value::as_i64) {
+        Some(n) if n > 0 => n,
+        _ => {
+            let effective_id = cart::cookie_cart_id(req);
+            cart_store
+                .get_or_create_open(effective_id.as_deref(), now_ms())
+                .map(|(summary, _)| summary.subtotal)
+                .unwrap_or(0)
+        }
+    };
+
+    let cart_id = body
+        .get("cartId")
+        .and_then(Value::as_str)
+        .map(|s| s.to_string());
+
+    match store.redeem(&code, cart_total, cart_id.as_deref(), None, now_ms()) {
+        Ok(result) => json(
+            200,
+            &Value::Object(vec![
+                ("ok".into(), Value::Bool(true)),
+                ("giftCardId".into(), Value::Str(result.gift_card_id)),
+                ("applied".into(), Value::Int(result.applied)),
+                (
+                    "appliedLabel".into(),
+                    Value::Str(shop::format_isk(result.applied)),
+                ),
+                (
+                    "remainingBalance".into(),
+                    Value::Int(result.remaining_balance),
+                ),
+                (
+                    "remainingCartTotal".into(),
+                    Value::Int(result.remaining_cart_total),
+                ),
+            ]),
+        ),
+        Err(reason) => json(
+            200,
+            &Value::Object(vec![
+                ("ok".into(), Value::Bool(false)),
+                ("reason".into(), Value::Str(reason.as_str().into())),
+            ]),
+        ),
+    }
+}
+
 /// `GET /api/admin/gift-cards` lists all cards (or one when an id is in the
 /// path). `POST /api/admin/gift-cards` issues one or more cards (admin only;
 /// gating is done by the caller). Supports bulk issuance via `count`.
@@ -1263,16 +1339,18 @@ fn api_admin_giftcards(store: &GiftCardStore, req: &Request, path_id: Option<&st
             let mut issued = Vec::new();
             for _ in 0..count {
                 match store.issue(
-                    amount,
-                    currency,
-                    None,
-                    None,
-                    recipient_email,
-                    recipient_phone,
-                    recipient_name,
-                    message,
-                    expires_at,
-                    delivery_at,
+                    IssueParams {
+                        amount,
+                        currency,
+                        purchased_by_user_id: None,
+                        cart_id: None,
+                        recipient_email,
+                        recipient_phone,
+                        recipient_name,
+                        message,
+                        expires_at,
+                        delivery_at,
+                    },
                     now,
                 ) {
                     Ok((id, code)) => issued.push(Value::Object(vec![
