@@ -16,6 +16,7 @@
 use crate::auth;
 use crate::booking::{self, Store as BookingStore};
 use crate::cart::{self, Store as CartStore};
+use crate::checkout::{self, Store as CheckoutStore};
 use crate::content;
 use crate::giftcards::{self, IssueParams, Store as GiftCardStore};
 use crate::mime;
@@ -69,6 +70,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
     let cart_store = Arc::new(CartStore::open(&cart_data_dir(&root))?);
     let settings_store = Arc::new(crate::admin::settings::Store::open(&admin_data_dir(&root))?);
     let giftcard_store = Arc::new(GiftCardStore::open(&giftcard_data_dir(&root))?);
+    let checkout_store = Arc::new(CheckoutStore::open(&checkout_data_dir(&root))?);
 
     // Auth stores live under data/auth/ (sibling of data/booking/).
     let auth_data = data_dir
@@ -83,6 +85,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
     println!("  shop db: {}", shop_data_dir(&root).display());
     println!("  cart db: {}", cart_data_dir(&root).display());
     println!("  admin db: {}", admin_data_dir(&root).display());
+    println!("  checkout db: {}", checkout_data_dir(&root).display());
     println!("  → http://{local}");
     println!("  giftcards db: {}", giftcard_data_dir(&root).display());
     println!("  utilities.css: served at /utilities.css");
@@ -101,6 +104,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
             &cart_store,
             &settings_store,
             &giftcard_store,
+            &checkout_store,
             &auth,
             req,
         )
@@ -150,6 +154,13 @@ fn giftcard_data_dir(frontend_dir: &Path) -> PathBuf {
         .parent()
         .map(|p| p.join("data/giftcards"))
         .unwrap_or_else(|| frontend_dir.join("data/giftcards"))
+}
+
+fn checkout_data_dir(frontend_dir: &Path) -> PathBuf {
+    frontend_dir
+        .parent()
+        .map(|p| p.join("data/checkout"))
+        .unwrap_or_else(|| frontend_dir.join("data/checkout"))
 }
 
 /// Seed a demo user, a klippikort package grant (`slots` slots) and an active
@@ -204,6 +215,7 @@ fn dispatch_reply(
     cart_store: &CartStore,
     settings_store: &crate::admin::settings::Store,
     giftcard_store: &GiftCardStore,
+    checkout_store: &CheckoutStore,
     auth: &auth::State,
     req: &Request,
 ) -> Reply {
@@ -222,6 +234,7 @@ fn dispatch_reply(
             cart_store,
             settings_store,
             giftcard_store,
+            checkout_store,
             auth,
             req,
         )),
@@ -237,6 +250,7 @@ fn dispatch(
     cart_store: &CartStore,
     settings_store: &crate::admin::settings::Store,
     giftcard_store: &GiftCardStore,
+    checkout_store: &CheckoutStore,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
@@ -289,6 +303,12 @@ fn dispatch(
                 Some(slug_of(p, "/api/admin/gift-cards/")),
             )
         }
+
+        // Checkout + payment APIs.
+        "/api/cart/checkout" => checkout::api_checkout(cart_store, checkout_store, auth, req),
+        "/api/payments/landsbankinn/callback" => {
+            checkout::api_landsbankinn_callback(cart_store, checkout_store, store, req)
+        }
         p if p.starts_with("/api/admin/shop/products/") => {
             if !auth.require_role(req, auth::Role::Admin) {
                 return json(401, &error_value("Unauthorized"));
@@ -328,6 +348,13 @@ fn dispatch(
 
         // Home: the server-rendered booking calendar (replaces the placeholder).
         "/" => calendar_page(root, store, auth, req),
+
+        // Checkout + payment result pages (Phase 3 checkout flow).
+        "/checkout" => checkout::page_checkout(root, cart_store, auth, req),
+        "/checkout/bank-transfer" => checkout::page_bank_transfer(root, checkout_store, auth, req),
+        "/checkout/landsbankinn" => checkout::page_landsbankinn(root, auth, req),
+        "/checkout/success" => checkout::page_success(root, auth, req),
+        "/checkout/cancel" => checkout::page_cancel(root, auth, req),
 
         // Markdown content pages — handled explicitly (mirrors the framework's
         // explicit `/changelog` and `/docs/*` routes).
@@ -1315,7 +1342,7 @@ fn resolve_snapshot_item(
 /// Derive a stable, valid cart ID for an authenticated user.
 /// Uses the email with non-alphanumeric chars mapped to dashes so it satisfies
 /// `cart::valid_cart_id` (alphanumeric + dash, max 96 chars).
-fn user_cart_id(email: &str) -> String {
+pub fn user_cart_id(email: &str) -> String {
     let slug: String = email
         .chars()
         .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })

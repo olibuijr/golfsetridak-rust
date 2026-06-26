@@ -15,6 +15,7 @@ mod admin;
 mod auth;
 mod booking;
 mod cart;
+mod checkout;
 mod content;
 mod giftcards;
 mod mime;

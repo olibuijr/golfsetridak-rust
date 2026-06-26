@@ -1,0 +1,11 @@
+{% include "header" %}
+    <section class="hero text-center" data-error-code="{{ error_code }}">
+      <span class="eyebrow">Greiðsla</span>
+      <h1>{{ error_title }}</h1>
+      <p class="lede">{{ error_message }}</p>
+      <div class="btn-row">
+        <a class="btn btn-primary" href="/checkout">Reyna aftur</a>
+        <a class="btn btn-secondary" href="/my/verslun/karfa">Karfan</a>
+      </div>
+    </section>
+{% include "footer" %}
