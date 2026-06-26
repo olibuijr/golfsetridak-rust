@@ -942,3 +942,98 @@ h3 { font-size: 1.25rem; }
 .article-hero-inner { max-width: 46rem; margin-inline: auto; }
 .article-hero h1 { margin: 12px 0 0; text-transform: uppercase; font-weight: 700; }
 .article-hero .article-meta { margin: 14px 0 0; }
+
+/* ---- Home hero (marketing front-door above the calendar) ------------ */
+.home-hero {
+  position: relative;
+  overflow: hidden;
+  margin: -40px -24px 10px;
+  padding: 76px 24px 60px;
+  text-align: center;
+  border-bottom: 1px solid var(--border);
+  background:
+    radial-gradient(940px 440px at 50% -28%, rgba(5, 150, 105, 0.30), transparent 62%),
+    radial-gradient(720px 400px at 82% 124%, rgba(163, 230, 53, 0.10), transparent 60%),
+    linear-gradient(180deg, #060a07, var(--bg));
+}
+.home-hero-inner {
+  position: relative;
+  max-width: var(--maxw);
+  margin-inline: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.home-hero-mark { width: clamp(72px, 16vw, 104px); height: auto; }
+.home-hero-wordmark {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: -0.01em;
+  line-height: 0.92;
+  margin: 18px 0 0;
+  font-size: clamp(2.6rem, 8vw, 5.4rem);
+}
+.home-hero-place {
+  display: block;
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: 0.5em;
+  color: var(--brand-hover);
+  font-size: clamp(0.72rem, 2vw, 1rem);
+  margin: 6px 0 0 0.5em;
+}
+.hero-badge {
+  margin-top: 24px;
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 18px;
+  border-radius: 999px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+  backdrop-filter: blur(6px);
+}
+.hero-badge .dot { width: 7px; height: 7px; border-radius: 999px; background: var(--accent); }
+.home-hero .btn-row { justify-content: center; }
+.home-hero .lede { max-width: 46ch; }
+
+.offer-grid {
+  display: grid;
+  gap: 14px;
+  margin: 38px auto 0;
+  width: 100%;
+  max-width: 58rem;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+}
+.offer-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  text-align: left;
+  padding: 18px 20px;
+  border-radius: var(--radius-lg);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.offer-card:hover { border-color: var(--brand-deep); transform: translateY(-2px); text-decoration: none; }
+.offer-card .icon-box { flex: none; }
+.offer-copy { display: flex; flex-direction: column; gap: 2px; }
+.offer-eyebrow { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.12em; color: var(--muted); }
+.offer-title {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  text-transform: uppercase;
+  font-size: 1.15rem;
+  color: var(--text);
+}
+.offer-arrow { margin-left: auto; color: var(--brand-hover); flex: none; }
+.offer-arrow svg { width: 20px; height: 20px; display: block; }
+.offer-card.offer-sun .icon-box { background: rgba(163, 230, 53, 0.16); color: var(--accent); }
+.offer-card.offer-gift .icon-box { background: rgba(16, 185, 129, 0.16); color: var(--brand-hover); }
