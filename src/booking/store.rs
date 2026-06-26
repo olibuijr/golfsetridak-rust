@@ -577,7 +577,10 @@ fn user_package_by_id(tree: &mut BTree, id: &str) -> Option<UserPackage> {
         id: v.get("id").and_then(Value::as_str)?.to_string(),
         user_id: v.get("user_id").and_then(Value::as_str)?.to_string(),
         remaining: v.get("remaining").and_then(Value::as_i64)?,
-        package_name: v.get("package_name").and_then(Value::as_str).map(str::to_string),
+        package_name: v
+            .get("package_name")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         slot_count: v.get("slot_count").and_then(Value::as_i64),
     })
 }
@@ -602,7 +605,10 @@ fn all_user_packages(tree: &mut BTree) -> Vec<UserPackage> {
                 id: v.get("id").and_then(Value::as_str)?.to_string(),
                 user_id: v.get("user_id").and_then(Value::as_str)?.to_string(),
                 remaining: v.get("remaining").and_then(Value::as_i64)?,
-                package_name: v.get("package_name").and_then(Value::as_str).map(str::to_string),
+                package_name: v
+                    .get("package_name")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 slot_count: v.get("slot_count").and_then(Value::as_i64),
             })
         })
@@ -755,6 +761,8 @@ mod tests {
                 id: "up1".into(),
                 user_id: "u1".into(),
                 remaining: 1,
+                package_name: None,
+                slot_count: None,
             })
             .unwrap();
         let now = parse_date("2026-06-26").unwrap();
@@ -782,6 +790,8 @@ mod tests {
                 id: "up1".into(),
                 user_id: "owner".into(),
                 remaining: 5,
+                package_name: None,
+                slot_count: None,
             })
             .unwrap();
         let now = parse_date("2026-06-26").unwrap();
@@ -866,6 +876,8 @@ mod tests {
                 id: "up1".into(),
                 user_id: "u1".into(),
                 remaining: 1,
+                package_name: None,
+                slot_count: None,
             })
             .unwrap();
         let now = parse_date("2026-06-26").unwrap();
@@ -944,12 +956,11 @@ mod tests {
         assert_eq!(err, "Þessi tími er þegar bókaður");
         cleanup(&dir);
     }
-}
 
     #[test]
     fn list_user_packages_and_subscriptions() {
         let (store, dir) = temp_store("list");
-        
+
         // Create packages for two users
         store
             .put_user_package(&UserPackage {
@@ -1027,3 +1038,4 @@ mod tests {
 
         cleanup(&dir);
     }
+}

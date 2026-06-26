@@ -632,7 +632,9 @@ impl OtpDeliver for SidecarDeliver {
         if ok {
             Ok(())
         } else {
-            Err(io::Error::other(format!("sidecar rejected email: {status_line}")))
+            Err(io::Error::other(format!(
+                "sidecar rejected email: {status_line}"
+            )))
         }
     }
 }

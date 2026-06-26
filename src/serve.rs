@@ -266,6 +266,7 @@ fn dispatch(
         "/skilmalar" => legal(root, "skilmalar", auth, req),
         "/um-okkur" => about(root, auth, req),
         "/verslun" => shop_page(root, shop_store, auth, req),
+        "/my" => my_page(root, store, auth, req),
         "/my/verslun" => shop_page(root, shop_store, auth, req),
         "/my/verslun/karfa" => cart_page(root, cart_store, req, auth),
         "/admin/vorur" => {
@@ -1140,6 +1141,65 @@ fn about(root: &Path, auth: &auth::State, req: &Request) -> Response {
     article(root, &path, "", auth, req)
 }
 
+// ---- account (mínar síður) page -------------------------------------------
+
+/// `GET /my` — the signed-in user's account dashboard.
+///
+/// Server-side auth gate: unauthenticated requests redirect to `/login` (the
+/// page's own JS performs the same `/api/me` 401 → `/login` redirect once
+/// loaded, but the server gate means an unauthenticated `curl /my` never even
+/// renders the shell).
+///
+/// The user's **active subscriptions** are server-rendered here (their daily
+/// limit + validity window), because the account page is the only consumer and
+/// there is no standalone subscriptions API yet. Profile, packages, and bookings
+/// are fetched client-side from `/api/me`, `/api/user-packages`, and
+/// `/api/bookings`. A subscription is *active* when today's calendar day falls
+/// inside its `[valid_from, valid_until]` window (see [`booking::subscription`]).
+fn my_page(root: &Path, store: &BookingStore, auth: &auth::State, req: &Request) -> Response {
+    let Some(user) = auth.current_user(req) else {
+        return Response::new(302).with_header("Location", "/login");
+    };
+
+    let now = now_ms();
+    let mut subs: Vec<Value> = Vec::new();
+    let mut active_count = 0_i64;
+    for sub in store.user_subscriptions_for_user(&user.email) {
+        let is_active = booking::subscription::covers_date(sub.valid_from, sub.valid_until, now);
+        if is_active {
+            active_count += 1;
+        }
+        subs.push(Value::Object(vec![
+            ("id".into(), Value::Str(sub.id)),
+            ("isActive".into(), Value::Bool(is_active)),
+            ("dailyLimit".into(), Value::Int(sub.daily_limit)),
+            (
+                "validFrom".into(),
+                Value::Str(booking::time::date_string(sub.valid_from)),
+            ),
+            (
+                "validUntil".into(),
+                Value::Str(booking::time::date_string(sub.valid_until)),
+            ),
+        ]));
+    }
+
+    render(
+        root,
+        "my",
+        vec![
+            (
+                "page_title".into(),
+                Value::Str("Mínar síður — Golfsetrið Akureyri".into()),
+            ),
+            ("subscriptions".into(), Value::Array(subs)),
+            ("active_subscriptions_count".into(), Value::Int(active_count)),
+        ],
+        auth,
+        req,
+    )
+}
+
 // ---- shop + cart pages ----------------------------------------------------
 
 fn shop_page(root: &Path, store: &ShopStore, auth: &auth::State, req: &Request) -> Response {
@@ -1786,56 +1846,6 @@ fn api_user_packages(store: &BookingStore, auth: &auth::State, req: &Request) ->
 }
 
 fn health() -> Value {
-
-/// `GET /api/me` — current user profile.
-fn api_me(auth: &auth::State, req: &Request) -> Response {
-    if req.method != Method::Get {
-        return json(405, &error_value("method not allowed"));
-    }
-    let Some(user) = auth.current_user(req) else {
-        return json(401, &error_value("Unauthorized"));
-    };
-    let profile = Value::Object(vec![
-        ("id".into(), Value::Str(user.email.clone())),
-        ("email".into(), Value::Str(user.email)),
-        ("role".into(), Value::Str(user.role.as_str().into())),
-    ]);
-    json(200, &Value::Object(vec![("user".into(), profile)]))
-}
-
-/// `GET /api/user-packages` — user's packages with remaining slots.
-fn api_user_packages(store: &BookingStore, auth: &auth::State, req: &Request) -> Response {
-    if req.method != Method::Get {
-        return json(405, &error_value("method not allowed"));
-    }
-    let Some(user) = auth.current_user(req) else {
-        return json(401, &error_value("Unauthorized"));
-    };
-    let packages = store.user_packages_for_user(&user.email);
-    let pkg_values: Vec<Value> = packages
-        .into_iter()
-        .map(|p| {
-            Value::Object(vec![
-                ("id".into(), Value::Str(p.id)),
-                (
-                    "name".into(),
-                    p.package_name
-                        .map(Value::Str)
-                        .unwrap_or(Value::Str("Unknown".into())),
-                ),
-                (
-                    "slotCount".into(),
-                    p.slot_count.map(Value::Int).unwrap_or(Value::Int(0)),
-                ),
-                ("remaining".into(), Value::Int(p.remaining)),
-            ])
-        })
-        .collect();
-    json(
-        200,
-        &Value::Object(vec![("packages".into(), Value::Array(pkg_values))]),
-    )
-}
     Value::Object(vec![
         ("app".into(), Value::Str("golfsetridak".into())),
         ("framework".into(), Value::Str("AkurAI-Framework".into())),
