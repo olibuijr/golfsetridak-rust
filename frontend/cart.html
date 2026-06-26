@@ -2,7 +2,7 @@
     <section class="hero text-center">
       <span class="eyebrow">Verslun</span>
       <h1>Karfan</h1>
-      <p class="lede">Yfirlit yfir vörur í körfunni. Greiðsla kemur í næsta áfanga.</p>
+      <p class="lede">Yfirlit yfir vörur í körfunni. Haltu áfram í greiðslu þegar þú ert tilbúin/n.</p>
     </section>
 
     <section class="cart-shell">
@@ -30,8 +30,11 @@
       <aside class="cart-summary">
         <h2>Samtals</h2>
         <p class="cart-total">{{ subtotal_label }}</p>
-        <p class="muted">Karfan geymir vörur og samtölur. Greiðsla og afhending eru ekki virk í þessum áfanga.</p>
-        <a class="btn btn-primary" href="/verslun">Halda áfram að versla</a>
+        <p class="muted">Verð með VSK. Greitt með korti eða millifærslu.</p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="/checkout">Greiða</a>
+          <a class="btn btn-ghost" href="/verslun">Halda áfram að versla</a>
+        </div>
       </aside>
       {% else %}
       <div class="empty-state">
