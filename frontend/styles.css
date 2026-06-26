@@ -332,3 +332,97 @@ h3 { font-size: 1.25rem; }
   .nav { gap: 12px; flex-wrap: wrap; }
   .nav-login { margin-left: 0; }
 }
+
+/* ---- Booking calendar ----------------------------------------------- */
+
+.calendar { padding: 8px 0 32px; }
+
+.price-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+  margin: 0 0 18px;
+}
+.price-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 0.85rem;
+}
+.price-chip-name { color: var(--text); font-weight: 600; }
+.price-chip-range { color: var(--muted); }
+.price-chip-price { color: var(--accent); font-weight: 600; }
+
+.calendar-note {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin: 0 0 24px;
+}
+.calendar-note a { color: var(--brand-hover); }
+
+.calendar-days { display: grid; gap: 20px; }
+
+.day-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 18px 20px;
+}
+.day-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+.day-weekday {
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--brand-hover);
+  font-weight: 700;
+}
+.day-date { color: var(--muted); font-size: 0.95rem; }
+
+.slot-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+  gap: 8px;
+}
+.slot-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding: 10px 6px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.02);
+  min-height: 56px;
+  text-align: center;
+}
+.slot-hour { font-weight: 600; color: var(--text); }
+.slot-price { font-size: 0.8rem; color: var(--accent); }
+.slot-tag { font-size: 0.72rem; color: var(--muted); }
+
+.slot-available {
+  border-color: var(--brand-deep);
+  cursor: pointer;
+  transition: border-color 0.15s ease, transform 0.15s ease;
+}
+.slot-available:hover {
+  border-color: var(--brand-hover);
+  transform: translateY(-1px);
+}
+.slot-booked { opacity: 0.55; }
+.slot-booked .slot-hour { color: var(--muted); }
+.slot-past { opacity: 0.3; }
+

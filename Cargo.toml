@@ -27,6 +27,10 @@ akurai-template = { path = "../AkurAI-Framework/crates/template" }
 akurai-markdown = { path = "../AkurAI-Framework/crates/markdown" }
 akurai-router = { path = "../AkurAI-Framework/crates/router" }
 akurai-css = { path = "../AkurAI-Framework/crates/css" }
+# Phase 3 booking engine: the B+tree storage engine backs bookings, packages,
+# subscriptions and pricing rules. Slot-start-time keys make the tree's keyed
+# uniqueness the no-double-booking guard (see src/booking).
+akurai-storage = { path = "../AkurAI-Framework/crates/storage" }
 
 # Match the framework's release profile: one small, stripped, fully-optimized
 # static binary.

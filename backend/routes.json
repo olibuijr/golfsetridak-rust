@@ -1,12 +1,6 @@
 {
   "routes": [
     {
-      "path": "/",
-      "template": "placeholder",
-      "data": "data/home.json",
-      "title": "Golfsetrið Akureyri — golfhermar og rástímar"
-    },
-    {
       "path": "/verslun",
       "template": "placeholder",
       "data": "data/verslun.json",
