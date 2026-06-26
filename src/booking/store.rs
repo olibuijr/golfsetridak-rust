@@ -258,6 +258,14 @@ impl Store {
             .collect()
     }
 
+    /// Every booking in the store, chronological (slot-key order). The admin
+    /// dashboard scans this for system-wide counts and revenue. Cancelled
+    /// bookings are included — callers filter by `status` as needed.
+    pub fn all_bookings(&self) -> Vec<Booking> {
+        let mut t = self.lock();
+        all_bookings(&mut t.bookings)
+    }
+
     // ---- writes -----------------------------------------------------------
 
     /// Create one booking under the write lock. Mirrors `createBooking`

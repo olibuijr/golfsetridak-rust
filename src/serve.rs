@@ -66,6 +66,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
     let store = Arc::new(BookingStore::open(&data_dir)?);
     let shop_store = Arc::new(ShopStore::open(&shop_data_dir(&root))?);
     let cart_store = Arc::new(CartStore::open(&cart_data_dir(&root))?);
+    let settings_store = Arc::new(crate::admin::settings::Store::open(&admin_data_dir(&root))?);
 
     // Auth stores live under data/auth/ (sibling of data/booking/).
     let auth_data = data_dir
@@ -79,6 +80,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
     println!("  booking db: {}", data_dir.display());
     println!("  shop db: {}", shop_data_dir(&root).display());
     println!("  cart db: {}", cart_data_dir(&root).display());
+    println!("  admin db: {}", admin_data_dir(&root).display());
     println!("  → http://{local}");
     println!("  utilities.css: served at /utilities.css");
 
@@ -89,7 +91,15 @@ pub fn run(cfg: Config) -> io::Result<()> {
         .push(Timing);
 
     server.run_with(middleware, move |req: &Request| {
-        dispatch_reply(&root, &store, &shop_store, &cart_store, &auth, req)
+        dispatch_reply(
+            &root,
+            &store,
+            &shop_store,
+            &cart_store,
+            &settings_store,
+            &auth,
+            req,
+        )
     })
 }
 
@@ -122,6 +132,13 @@ fn cart_data_dir(frontend_dir: &Path) -> PathBuf {
         .parent()
         .map(|p| p.join("data/cart"))
         .unwrap_or_else(|| frontend_dir.join("data/cart"))
+}
+
+fn admin_data_dir(frontend_dir: &Path) -> PathBuf {
+    frontend_dir
+        .parent()
+        .map(|p| p.join("data/admin"))
+        .unwrap_or_else(|| frontend_dir.join("data/admin"))
 }
 
 /// Seed a demo user, a klippikort package grant (`slots` slots) and an active
@@ -166,11 +183,13 @@ pub fn seed_demo(frontend_dir: &Path, slots: i64) -> io::Result<()> {
 }
 
 /// Top-level reply dispatcher — handles auth routes before content routes.
+#[allow(clippy::too_many_arguments)]
 fn dispatch_reply(
     root: &Path,
     store: &BookingStore,
     shop_store: &ShopStore,
     cart_store: &CartStore,
+    settings_store: &crate::admin::settings::Store,
     auth: &auth::State,
     req: &Request,
 ) -> Reply {
@@ -178,16 +197,26 @@ fn dispatch_reply(
     match path {
         "/login" => auth::login(auth, root, req, store),
         "/logout" => auth::logout(auth, req),
-        _ => Reply::Response(dispatch(root, store, shop_store, cart_store, auth, req)),
+        _ => Reply::Response(dispatch(
+            root,
+            store,
+            shop_store,
+            cart_store,
+            settings_store,
+            auth,
+            req,
+        )),
     }
 }
 
 /// Route one request to a buffered response. `root` is the `frontend/` dir.
+#[allow(clippy::too_many_arguments)]
 fn dispatch(
     root: &Path,
     store: &BookingStore,
     shop_store: &ShopStore,
     cart_store: &CartStore,
+    settings_store: &crate::admin::settings::Store,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
@@ -293,6 +322,49 @@ fn dispatch(
                 auth,
                 req,
             )
+        }
+
+        // Admin API endpoints — stats and dashboard
+        "/api/admin/dashboard" => crate::admin::api_admin_dashboard(store, req, auth),
+        "/api/admin/stats" => crate::admin::api_admin_stats(store, req, auth),
+
+        // Admin HTML pages
+        "/admin" => crate::admin::admin_home_redirect(),
+        "/admin/bookings" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            crate::admin::admin_bookings_page(root, store, auth, req)
+        }
+        "/admin/payments" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            crate::admin::admin_payments_page(root, store, auth, req)
+        }
+        "/admin/users" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            crate::admin::admin_users_page(root, store, auth, req)
+        }
+        "/admin/settings" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            crate::admin::admin_settings_page(root, settings_store, auth, req)
+        }
+        "/admin/sms" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            crate::admin::admin_sms_page(root, settings_store, auth, req)
+        }
+        "/admin/tilkynningar" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            crate::admin::admin_announcements_page(root, store, auth, req)
         }
 
         // Unknown API routes are a hard JSON 404, never an HTML fallback.
@@ -1557,7 +1629,7 @@ fn params_value(params: &[(String, String)]) -> Value {
 
 /// Render template `name` with the `page.json` context plus `extra` pairs. A
 /// template or parse error surfaces as a 500 so it is visible in development.
-fn render(
+pub fn render(
     root: &Path,
     name: &str,
     mut extra: Vec<(String, Value)>,

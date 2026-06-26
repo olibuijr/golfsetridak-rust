@@ -11,6 +11,7 @@
 //! for the dynamic pages (booking calendar, shop, gift cards, account, admin)
 //! that arrive in later phases. See PORT.md.
 
+mod admin;
 mod auth;
 mod booking;
 mod cart;

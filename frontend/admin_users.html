@@ -1,0 +1,42 @@
+{% include "header" %}
+    <section class="admin-head">
+      <div>
+        <span class="eyebrow">Stjórnborð</span>
+        <h1>Notendur</h1>
+        <p class="lede">Stjórna notendum, hlutverkum og föstu verði.</p>
+      </div>
+      <nav class="admin-nav">
+        <a href="/admin/bookings">Bókanir</a>
+        <a href="/admin/payments">Greiðslur</a>
+        <a href="/admin/users" class="is-active">Notendur</a>
+        <a href="/admin/vorur">Vörur</a>
+        <a href="/admin/sms">SMS</a>
+        <a href="/admin/tilkynningar">Tilkynningar</a>
+        <a href="/admin/settings">Stillingar</a>
+      </nav>
+    </section>
+
+    <section class="admin-table-wrap">
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Nafn</th>
+            <th>Sími</th>
+            <th>Hlutverk</th>
+            <th>Fast verð</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for u in users %}
+          <tr>
+            <td><strong>{{ u.name }}</strong></td>
+            <td>{{ u.phone }}</td>
+            <td>{{ u.role }}</td>
+            <td>{{ u.fixedPriceLabel }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      <p class="muted admin-empty">Notendalisti birtist þegar gagnalagið er tengt (Phase 3).</p>
+    </section>
+{% include "footer" %}
