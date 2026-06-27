@@ -21,7 +21,7 @@ use crate::collections_api::CollectionsApi;
 use crate::content;
 use crate::giftcards::{self, IssueParams, Store as GiftCardStore};
 use crate::mime;
-use crate::shop::{self, Store as ShopStore};
+use crate::shop;
 use akurai_http::form::{field, parse_urlencoded};
 use akurai_http::{
     Method, MiddlewareStack, Reply, Request, RequestLogger, Response, SecurityHeaders, Server,
@@ -67,7 +67,6 @@ pub fn run(cfg: Config) -> io::Result<()> {
     // in `data/booking/`. Gitignored — never committed (see .gitignore).
     let data_dir = data_dir(&root);
     let store = Arc::new(BookingStore::open(&data_dir)?);
-    let shop_store = Arc::new(ShopStore::open(&shop_data_dir(&root))?);
     let cart_store = Arc::new(CartStore::open(&cart_data_dir(&root))?);
     let settings_store = Arc::new(crate::admin::settings::Store::open(&admin_data_dir(&root))?);
     let giftcard_store = Arc::new(GiftCardStore::open(&giftcard_data_dir(&root))?);
@@ -100,7 +99,6 @@ pub fn run(cfg: Config) -> io::Result<()> {
     println!("Golfsetrið Akureyri — golfsetridak v{VERSION} (on AkurAI-Framework)");
     println!("  serving {}", root.display());
     println!("  booking db: {}", data_dir.display());
-    println!("  shop db: {}", shop_data_dir(&root).display());
     println!("  cart db: {}", cart_data_dir(&root).display());
     println!("  admin db: {}", admin_data_dir(&root).display());
     println!("  checkout db: {}", checkout_data_dir(&root).display());
@@ -122,7 +120,6 @@ pub fn run(cfg: Config) -> io::Result<()> {
         dispatch_reply(
             &root,
             &store,
-            &shop_store,
             &cart_store,
             &settings_store,
             &giftcard_store,
@@ -149,13 +146,6 @@ pub fn data_dir(frontend_dir: &Path) -> PathBuf {
         .parent()
         .map(|p| p.join("data/booking"))
         .unwrap_or_else(|| frontend_dir.join("data/booking"))
-}
-
-fn shop_data_dir(frontend_dir: &Path) -> PathBuf {
-    frontend_dir
-        .parent()
-        .map(|p| p.join("data/shop"))
-        .unwrap_or_else(|| frontend_dir.join("data/shop"))
 }
 
 fn cart_data_dir(frontend_dir: &Path) -> PathBuf {
@@ -234,7 +224,6 @@ pub fn seed_demo(frontend_dir: &Path, slots: i64) -> io::Result<()> {
 fn dispatch_reply(
     root: &Path,
     store: &BookingStore,
-    shop_store: &ShopStore,
     cart_store: &CartStore,
     settings_store: &crate::admin::settings::Store,
     giftcard_store: &GiftCardStore,
@@ -254,7 +243,6 @@ fn dispatch_reply(
         _ => Reply::Response(dispatch(
             root,
             store,
-            shop_store,
             cart_store,
             settings_store,
             giftcard_store,
@@ -271,7 +259,6 @@ fn dispatch_reply(
 fn dispatch(
     root: &Path,
     store: &BookingStore,
-    shop_store: &ShopStore,
     cart_store: &CartStore,
     settings_store: &crate::admin::settings::Store,
     giftcard_store: &GiftCardStore,
@@ -290,7 +277,7 @@ fn dispatch(
         // Booking API (Phase 3). Methods are checked inside each handler.
         "/api/availability" => api_availability(store, req, auth),
         "/api/slot-price" => api_slot_price(collections_api, req, auth),
-        "/api/book" => api_book(store, req, auth),
+        "/api/book" => api_book(store, collections_api, req, auth),
         "/api/bookings" => api_bookings(store, req, auth),
         "/api/shop/products" => api_shop_products(collections_api, req),
         "/api/shop/categories" => api_shop_categories(collections_api, req),
@@ -298,13 +285,13 @@ fn dispatch(
             if !auth.require_role(req, auth::Role::Admin) {
                 return json(401, &error_value("Unauthorized"));
             }
-            api_admin_products(shop_store, req, None)
+            api_admin_products(collections_api, req, None)
         }
         "/api/admin/shop/categories" => {
             if !auth.require_role(req, auth::Role::Admin) {
                 return json(401, &error_value("Unauthorized"));
             }
-            api_admin_categories(shop_store, req, None)
+            api_admin_categories(collections_api, req, None)
         }
         "/api/cart" => api_cart(cart_store, req, auth),
         "/api/cart/items" => api_cart_items(store, collections_api, cart_store, req, None, auth),
@@ -340,7 +327,7 @@ fn dispatch(
                 return json(401, &error_value("Unauthorized"));
             }
             api_admin_products(
-                shop_store,
+                collections_api,
                 req,
                 Some(slug_of(p, "/api/admin/shop/products/")),
             )
@@ -350,7 +337,7 @@ fn dispatch(
                 return json(401, &error_value("Unauthorized"));
             }
             api_admin_categories(
-                shop_store,
+                collections_api,
                 req,
                 Some(slug_of(p, "/api/admin/shop/categories/")),
             )
@@ -413,7 +400,7 @@ fn dispatch(
             if !auth.require_role(req, auth::Role::Admin) {
                 return Response::new(302).with_header("Location", "/login");
             }
-            admin_product_form_page(root, shop_store, None, auth, req)
+            admin_product_form_page(root, collections_api, None, auth, req)
         }
         p if p.starts_with("/admin/vorur/") => {
             if !auth.require_role(req, auth::Role::Admin) {
@@ -421,7 +408,7 @@ fn dispatch(
             }
             admin_product_form_page(
                 root,
-                shop_store,
+                collections_api,
                 Some(slug_of(p, "/admin/vorur/")),
                 auth,
                 req,
@@ -602,7 +589,12 @@ fn api_slot_price(api: &CollectionsApi, req: &Request, auth: &auth::State) -> Re
 
 /// `POST /api/book` — create a booking. Body: `{ userId, slotTime, paymentType,
 /// userPackageId?, userSubscriptionId?, notes? }`.
-fn api_book(store: &BookingStore, req: &Request, auth: &auth::State) -> Response {
+fn api_book(
+    store: &BookingStore,
+    api: &CollectionsApi,
+    req: &Request,
+    auth: &auth::State,
+) -> Response {
     if req.method != Method::Post {
         return json(405, &error_value("method not allowed"));
     }
@@ -643,7 +635,18 @@ fn api_book(store: &BookingStore, req: &Request, auth: &auth::State) -> Response
     };
     let notes = body.get("notes").and_then(Value::as_str);
 
-    match store.create_booking(&user_id, slot_ms, payment_type, ref_id, notes, now) {
+    // Single-payment price comes from the collections pricing rules (the same
+    // source `/api/slot-price` reads) plus the user's collections `fixed_price`,
+    // so the charged price always matches an admin pricing change. Package /
+    // subscription bookings are covered (price 0 / accounted), so no resolved
+    // price is supplied for them — the store keeps its existing behavior.
+    let single_price = (payment_type == "single").then(|| {
+        let rules = collection_pricing_rules(api);
+        let fixed = collection_user_fixed_price(api, &user_id);
+        booking::pricing::effective_slot_price(booking::time::hour_of(slot_ms), &rules, fixed)
+    });
+
+    match store.create_booking(&user_id, slot_ms, payment_type, ref_id, notes, single_price, now) {
         Ok(id) => json(
             200,
             &Value::Object(vec![(
@@ -921,19 +924,21 @@ fn api_shop_categories(api: &CollectionsApi, req: &Request) -> Response {
     )
 }
 
-fn api_admin_products(store: &ShopStore, req: &Request, path_id: Option<&str>) -> Response {
+// Admin product CRUD on the COLLECTIONS `products` collection — the same store
+// the shop + admin LIST pages read, so writes here round-trip into those lists.
+fn api_admin_products(api: &CollectionsApi, req: &Request, path_id: Option<&str>) -> Response {
     match req.method {
         Method::Get => {
             if let Some(id) = path_id {
-                return match store.product(id) {
-                    Some(product) => json(
+                let Ok(id) = id.parse::<i64>() else {
+                    return json(400, &error_value("invalid id"));
+                };
+                return match api.record_by_id("products", id) {
+                    Some(record) => json(
                         200,
                         &Value::Object(vec![(
                             "product".into(),
-                            shop::product_value(
-                                &product,
-                                store.category_name(product.category_id.as_deref()),
-                            ),
+                            product_value_from_record(&record, &collection_category_names(api)),
                         )]),
                     ),
                     None => json(404, &error_value("not found")),
@@ -943,7 +948,7 @@ fn api_admin_products(store: &ShopStore, req: &Request, path_id: Option<&str>) -
                 200,
                 &Value::Object(vec![(
                     "products".into(),
-                    Value::Array(product_values(store, false)),
+                    Value::Array(collection_product_values(api, false)),
                 )]),
             )
         }
@@ -955,34 +960,45 @@ fn api_admin_products(store: &ShopStore, req: &Request, path_id: Option<&str>) -
             let Some(name) = str_field(&body, "name") else {
                 return json(400, &error_value("name required"));
             };
-            let Some(price) = int_field(&body, "price") else {
+            let Some(price) = int_field(&body, "price").filter(|p| *p >= 0) else {
                 return json(400, &error_value("valid price required"));
             };
+            let category = match admin_category_relation(&body) {
+                Ok(c) => c,
+                Err(r) => return r,
+            };
             let now = now_ms();
-            match store.create_product(
-                shop::ProductDraft {
-                    name,
-                    description: str_field(&body, "description"),
-                    price,
-                    image_url: str_field(&body, "imageUrl")
-                        .or_else(|| str_field(&body, "image_url")),
-                    category_id: str_field(&body, "categoryId")
-                        .or_else(|| str_field(&body, "category_id")),
-                    active: bool_field(&body, "active").unwrap_or(true),
-                },
-                now,
-            ) {
-                Ok(product) => json(
+            let mut input = vec![
+                ("name".into(), Value::Str(name.to_string())),
+                ("price".into(), Value::Int(price)),
+                (
+                    "active".into(),
+                    Value::Bool(bool_field(&body, "active").unwrap_or(true)),
+                ),
+                ("position".into(), Value::Int(0)),
+                ("created_at".into(), Value::Int(now)),
+                ("updated_at".into(), Value::Int(now)),
+            ];
+            if let Some(desc) = str_field(&body, "description") {
+                input.push(("description".into(), Value::Str(desc.to_string())));
+            }
+            if let Some(img) =
+                str_field(&body, "imageUrl").or_else(|| str_field(&body, "image_url"))
+            {
+                input.push(("image_url".into(), Value::Str(img.to_string())));
+            }
+            if let Some(cat) = category {
+                input.push(("category".into(), Value::Int(cat)));
+            }
+            match api.create_record("products", Value::Object(input)) {
+                Ok(record) => json(
                     201,
                     &Value::Object(vec![(
                         "product".into(),
-                        shop::product_value(
-                            &product,
-                            store.category_name(product.category_id.as_deref()),
-                        ),
+                        product_value_from_record(&record, &collection_category_names(api)),
                     )]),
                 ),
-                Err(e) => json(400, &error_value(&e)),
+                Err((status, msg)) => json(status, &error_value(&msg)),
             }
         }
         Method::Put => {
@@ -997,72 +1013,115 @@ fn api_admin_products(store: &ShopStore, req: &Request, path_id: Option<&str>) -
             else {
                 return json(400, &error_value("id required"));
             };
-            let update = shop::ProductUpdate {
-                name: str_field(&body, "name").map(str::to_string),
-                description: field_present(&body, "description")
-                    .then(|| str_field(&body, "description").map(str::to_string)),
-                price: int_field(&body, "price"),
-                image_url: field_present(&body, "imageUrl")
-                    .then(|| str_field(&body, "imageUrl").map(str::to_string)),
-                category_id: field_present(&body, "categoryId")
-                    .then(|| str_field(&body, "categoryId").map(str::to_string)),
-                active: bool_field(&body, "active"),
-                position: int_field(&body, "position"),
+            let Ok(id) = id.parse::<u64>() else {
+                return json(400, &error_value("invalid id"));
             };
-            match store.update_product(id, update, now_ms()) {
-                Ok(product) => json(
+            let mut patch: Vec<(String, Value)> = Vec::new();
+            if let Some(name) = str_field(&body, "name") {
+                patch.push(("name".into(), Value::Str(name.to_string())));
+            }
+            if let Some(price) = int_field(&body, "price") {
+                if price < 0 {
+                    return json(400, &error_value("valid price required"));
+                }
+                patch.push(("price".into(), Value::Int(price)));
+            }
+            if field_present(&body, "description") {
+                patch.push((
+                    "description".into(),
+                    opt_str_value(str_field(&body, "description")),
+                ));
+            }
+            if field_present(&body, "imageUrl") || field_present(&body, "image_url") {
+                let img = str_field(&body, "imageUrl").or_else(|| str_field(&body, "image_url"));
+                patch.push(("image_url".into(), opt_str_value(img)));
+            }
+            if field_present(&body, "categoryId") || field_present(&body, "category_id") {
+                let cat = match admin_category_relation(&body) {
+                    Ok(c) => c,
+                    Err(r) => return r,
+                };
+                patch.push(("category".into(), cat.map(Value::Int).unwrap_or(Value::Null)));
+            }
+            if let Some(active) = bool_field(&body, "active") {
+                patch.push(("active".into(), Value::Bool(active)));
+            }
+            if let Some(position) = int_field(&body, "position") {
+                patch.push(("position".into(), Value::Int(position)));
+            }
+            patch.push(("updated_at".into(), Value::Int(now_ms())));
+            match api.update_record("products", id, Value::Object(patch)) {
+                Ok(Some(record)) => json(
                     200,
                     &Value::Object(vec![(
                         "product".into(),
-                        shop::product_value(
-                            &product,
-                            store.category_name(product.category_id.as_deref()),
-                        ),
+                        product_value_from_record(&record, &collection_category_names(api)),
                     )]),
                 ),
-                Err(e) if e == "not found" => json(404, &error_value(&e)),
-                Err(e) => json(400, &error_value(&e)),
+                Ok(None) => json(404, &error_value("not found")),
+                Err((status, msg)) => json(status, &error_value(&msg)),
             }
         }
         Method::Delete => {
             let body = body_json(req).ok();
             let query_id = query_id(req);
-            let id = path_id
+            let Some(id) = path_id
                 .or_else(|| body.as_ref().and_then(|b| str_field(b, "id")))
-                .or(query_id.as_deref());
-            let Some(id) = id else {
+                .or(query_id.as_deref())
+            else {
                 return json(400, &error_value("id required"));
             };
-            match store.delete_product(id) {
-                Ok(()) => json(200, &Value::Object(vec![("ok".into(), Value::Bool(true))])),
-                Err(e) if e == "not found" => json(404, &error_value(&e)),
-                Err(e) => json(400, &error_value(&e)),
+            let Ok(id) = id.parse::<u64>() else {
+                return json(400, &error_value("invalid id"));
+            };
+            match api.delete_record("products", id) {
+                Ok(true) => json(200, &Value::Object(vec![("ok".into(), Value::Bool(true))])),
+                Ok(false) => json(404, &error_value("not found")),
+                Err((status, msg)) => json(status, &error_value(&msg)),
             }
         }
         _ => json(405, &error_value("method not allowed")),
     }
 }
 
-fn api_admin_categories(store: &ShopStore, req: &Request, path_id: Option<&str>) -> Response {
+/// Parse the admin product form's `categoryId` (or snake_case `category_id`)
+/// into a relation id: `None` for an absent/blank selection (no category), or
+/// `Some(id)`. A non-numeric value is a 400 error.
+fn admin_category_relation(body: &Value) -> Result<Option<i64>, Response> {
+    match str_field(body, "categoryId").or_else(|| str_field(body, "category_id")) {
+        None => Ok(None),
+        Some(s) => s
+            .parse::<i64>()
+            .map(Some)
+            .map_err(|_| json(400, &error_value("invalid category"))),
+    }
+}
+
+// Admin category CRUD on the COLLECTIONS `product_categories` collection.
+fn api_admin_categories(api: &CollectionsApi, req: &Request, path_id: Option<&str>) -> Response {
     match req.method {
         Method::Get => {
             if let Some(id) = path_id {
-                return match store.category(id) {
-                    Some(category) => json(
+                let Ok(id) = id.parse::<i64>() else {
+                    return json(400, &error_value("invalid id"));
+                };
+                return match api.record_by_id("product_categories", id) {
+                    Some(record) => json(
                         200,
-                        &Value::Object(vec![("category".into(), shop::category_value(&category))]),
+                        &Value::Object(vec![(
+                            "category".into(),
+                            category_value_from_record(&record),
+                        )]),
                     ),
                     None => json(404, &error_value("not found")),
                 };
             }
-            let rows = store
-                .list_categories(false)
-                .iter()
-                .map(shop::category_value)
-                .collect();
             json(
                 200,
-                &Value::Object(vec![("categories".into(), Value::Array(rows))]),
+                &Value::Object(vec![(
+                    "categories".into(),
+                    Value::Array(collection_category_values(api)),
+                )]),
             )
         }
         Method::Post => {
@@ -1073,19 +1132,45 @@ fn api_admin_categories(store: &ShopStore, req: &Request, path_id: Option<&str>)
             let Some(name) = str_field(&body, "name") else {
                 return json(400, &error_value("name required"));
             };
-            match store.create_category(
-                name,
-                str_field(&body, "slug"),
-                str_field(&body, "description"),
-                int_field(&body, "position").unwrap_or(0),
-                bool_field(&body, "active").unwrap_or(true),
-                now_ms(),
-            ) {
-                Ok(category) => json(
-                    201,
-                    &Value::Object(vec![("category".into(), shop::category_value(&category))]),
+            // Slug: the supplied value, or one derived from the name (mirrors the
+            // source's auto-slug). UNIQUE in the source — enforced here too.
+            let slug = match str_field(&body, "slug") {
+                Some(s) => shop::slugify(s),
+                None => shop::slugify(name),
+            };
+            if slug.is_empty() {
+                return json(400, &error_value("valid slug required"));
+            }
+            if category_slug_taken(api, &slug, None) {
+                return json(400, &error_value("slug already exists"));
+            }
+            let now = now_ms();
+            let mut input = vec![
+                ("name".into(), Value::Str(name.to_string())),
+                ("slug".into(), Value::Str(slug)),
+                (
+                    "position".into(),
+                    Value::Int(int_field(&body, "position").unwrap_or(0)),
                 ),
-                Err(e) => json(400, &error_value(&e)),
+                (
+                    "active".into(),
+                    Value::Bool(bool_field(&body, "active").unwrap_or(true)),
+                ),
+                ("created_at".into(), Value::Int(now)),
+                ("updated_at".into(), Value::Int(now)),
+            ];
+            if let Some(desc) = str_field(&body, "description") {
+                input.push(("description".into(), Value::Str(desc.to_string())));
+            }
+            match api.create_record("product_categories", Value::Object(input)) {
+                Ok(record) => json(
+                    201,
+                    &Value::Object(vec![(
+                        "category".into(),
+                        category_value_from_record(&record),
+                    )]),
+                ),
+                Err((status, msg)) => json(status, &error_value(&msg)),
             }
         }
         Method::Put => {
@@ -1100,40 +1185,93 @@ fn api_admin_categories(store: &ShopStore, req: &Request, path_id: Option<&str>)
             else {
                 return json(400, &error_value("id required"));
             };
-            let update = shop::CategoryUpdate {
-                name: str_field(&body, "name").map(str::to_string),
-                slug: str_field(&body, "slug").map(str::to_string),
-                description: field_present(&body, "description")
-                    .then(|| str_field(&body, "description").map(str::to_string)),
-                position: int_field(&body, "position"),
-                active: bool_field(&body, "active"),
+            let Ok(id) = id.parse::<u64>() else {
+                return json(400, &error_value("invalid id"));
             };
-            match store.update_category(id, update, now_ms()) {
-                Ok(category) => json(
+            let mut patch: Vec<(String, Value)> = Vec::new();
+            if let Some(name) = str_field(&body, "name") {
+                patch.push(("name".into(), Value::Str(name.to_string())));
+            }
+            if field_present(&body, "slug") {
+                let Some(raw) = str_field(&body, "slug") else {
+                    return json(400, &error_value("valid slug required"));
+                };
+                let slug = shop::slugify(raw);
+                if slug.is_empty() {
+                    return json(400, &error_value("valid slug required"));
+                }
+                if category_slug_taken(api, &slug, Some(id as i64)) {
+                    return json(400, &error_value("slug already exists"));
+                }
+                patch.push(("slug".into(), Value::Str(slug)));
+            }
+            if field_present(&body, "description") {
+                patch.push((
+                    "description".into(),
+                    opt_str_value(str_field(&body, "description")),
+                ));
+            }
+            if let Some(position) = int_field(&body, "position") {
+                patch.push(("position".into(), Value::Int(position)));
+            }
+            if let Some(active) = bool_field(&body, "active") {
+                patch.push(("active".into(), Value::Bool(active)));
+            }
+            patch.push(("updated_at".into(), Value::Int(now_ms())));
+            match api.update_record("product_categories", id, Value::Object(patch)) {
+                Ok(Some(record)) => json(
                     200,
-                    &Value::Object(vec![("category".into(), shop::category_value(&category))]),
+                    &Value::Object(vec![(
+                        "category".into(),
+                        category_value_from_record(&record),
+                    )]),
                 ),
-                Err(e) if e == "not found" => json(404, &error_value(&e)),
-                Err(e) => json(400, &error_value(&e)),
+                Ok(None) => json(404, &error_value("not found")),
+                Err((status, msg)) => json(status, &error_value(&msg)),
             }
         }
         Method::Delete => {
             let body = body_json(req).ok();
             let query_id = query_id(req);
-            let id = path_id
+            let Some(id) = path_id
                 .or_else(|| body.as_ref().and_then(|b| str_field(b, "id")))
-                .or(query_id.as_deref());
-            let Some(id) = id else {
+                .or(query_id.as_deref())
+            else {
                 return json(400, &error_value("id required"));
             };
-            match store.delete_category(id) {
-                Ok(()) => json(200, &Value::Object(vec![("ok".into(), Value::Bool(true))])),
-                Err(e) if e == "not found" => json(404, &error_value(&e)),
-                Err(e) => json(400, &error_value(&e)),
+            let Ok(id) = id.parse::<u64>() else {
+                return json(400, &error_value("invalid id"));
+            };
+            // Mirror the source FK `ON DELETE SET NULL`: clear the relation on any
+            // product still pointing at this category before removing it.
+            for product in api.records("products") {
+                if product.get("category").and_then(Value::as_i64) == Some(id as i64) {
+                    if let Some(pid) = product.get("id").and_then(Value::as_i64) {
+                        let _ = api.update_record(
+                            "products",
+                            pid as u64,
+                            Value::Object(vec![("category".into(), Value::Null)]),
+                        );
+                    }
+                }
+            }
+            match api.delete_record("product_categories", id) {
+                Ok(true) => json(200, &Value::Object(vec![("ok".into(), Value::Bool(true))])),
+                Ok(false) => json(404, &error_value("not found")),
+                Err((status, msg)) => json(status, &error_value(&msg)),
             }
         }
         _ => json(405, &error_value("method not allowed")),
     }
+}
+
+/// Whether a `product_categories` slug is already used by a record other than
+/// `except_id` (the source enforces a UNIQUE slug; collections do not).
+fn category_slug_taken(api: &CollectionsApi, slug: &str, except_id: Option<i64>) -> bool {
+    api.records("product_categories").iter().any(|c| {
+        c.get("slug").and_then(Value::as_str) == Some(slug)
+            && c.get("id").and_then(Value::as_i64) != except_id
+    })
 }
 
 fn api_cart(store: &CartStore, req: &Request, auth: &auth::State) -> Response {
@@ -1304,7 +1442,7 @@ fn resolve_cart_item(
             })
         }
         "gift_card" => resolve_gift_card_item(body),
-        "slot" => resolve_slot_item(booking_store, body, now),
+        "slot" => resolve_slot_item(booking_store, collections_api, body, now),
         "package" | "subscription" => resolve_snapshot_item(body, item_type),
         _ => Err((400, "invalid type".into())),
     }
@@ -1341,6 +1479,7 @@ fn resolve_gift_card_item(body: &Value) -> Result<cart::ResolvedItem, (u16, Stri
 
 fn resolve_slot_item(
     booking_store: &BookingStore,
+    api: &CollectionsApi,
     body: &Value,
     now: i64,
 ) -> Result<cart::ResolvedItem, (u16, String)> {
@@ -1361,11 +1500,16 @@ fn resolve_slot_item(
         return Err((409, "slot already booked".into()));
     }
     let hour = booking::time::hour_of(slot_ms);
+    // The charged snapshot comes from the collections pricing rules (the same
+    // source `/api/slot-price` and the booking-create path use), so an admin
+    // pricing change in collections is reflected in the cart and the fulfilled
+    // booking. No per-user fixed price here — the cart can be anonymous.
+    let unit_price = booking::pricing::slot_price(hour, &collection_pricing_rules(api));
     Ok(cart::ResolvedItem {
         item_type: "slot".into(),
         ref_id: ref_id.to_string(),
         name_snapshot: format!("{ref_id} kl. {hour:02}:00"),
-        unit_price: booking_store.slot_price(hour, None),
+        unit_price,
         quantity: 1,
         metadata: Value::Object(vec![
             ("startsAt".into(), Value::Str(ref_id.to_string())),
