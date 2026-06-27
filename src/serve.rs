@@ -299,6 +299,12 @@ fn dispatch(
             }
             api_admin_pricing(collections_api, req, slug_of(p, "/api/admin/pricing/"))
         }
+        "/api/admin/upload" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_admin_upload(root, req)
+        }
         "/api/shop/products" => api_shop_products(collections_api, req),
         "/api/shop/categories" => api_shop_categories(collections_api, req),
         "/api/admin/shop/products" => {
@@ -535,6 +541,15 @@ fn dispatch(
 
         // Unknown API routes are a hard JSON 404, never an HTML fallback.
         p if p.starts_with("/api/") => json(404, &error_value("not found")),
+
+        // Deep-link booking page for a specific slot (mirrors `book/[slot]`).
+        p if p.starts_with("/book/") => {
+            book_slot_page(root, collections_api, slug_of(p, "/book/"), auth, req)
+        }
+
+        // Admin-uploaded product images (served before the static-asset arm so
+        // the `.png`/`.jpg` extension doesn't route into `frontend/`).
+        p if p.starts_with("/uploads/") => serve_upload(root, p),
 
         // Static assets (anything whose last segment has a non-`.html` extension).
         p if is_static_asset(p) => serve_static(root, p),
@@ -2876,7 +2891,10 @@ fn api_book_batch(
     let Some(user_id) = resolve_user_id(req, Some(&body), auth) else {
         return json(401, &error_value("Unauthorized"));
     };
-    let payment_type = body.get("paymentType").and_then(Value::as_str).unwrap_or("");
+    let payment_type = body
+        .get("paymentType")
+        .and_then(Value::as_str)
+        .unwrap_or("");
     let slots = match body.get("slotTimes") {
         Some(Value::Array(s)) if !s.is_empty() => s,
         _ => {
@@ -2921,8 +2939,15 @@ fn api_book_batch(
         let price = (payment_type == "single").then(|| {
             booking::pricing::effective_slot_price(booking::time::hour_of(slot_ms), &rules, fixed)
         });
-        match store.create_booking_priced(&user_id, slot_ms, payment_type, ref_id, notes, price, now)
-        {
+        match store.create_booking_priced(
+            &user_id,
+            slot_ms,
+            payment_type,
+            ref_id,
+            notes,
+            price,
+            now,
+        ) {
             Ok(id) => created.push(Value::Str(id)),
             Err(e) => fail(slot, e, &mut failed),
         }
@@ -3050,6 +3075,122 @@ fn api_users(
         }
         _ => json(405, &error_value("method not allowed")),
     }
+}
+
+/// Directory holding admin-uploaded product images, under the project data dir
+/// (so deploys, which overwrite `frontend/`, don't wipe uploads). Served at
+/// `/uploads/`.
+fn uploads_dir(root: &Path) -> PathBuf {
+    root.parent().unwrap_or(root).join("data").join("uploads")
+}
+
+/// `POST /api/admin/upload` — accept a product image (png/jpg/webp, ≤5 MB) and
+/// return `{ url }`. Admin-gated at dispatch. Mirrors `admin/upload/route.ts`,
+/// storing under the data uploads dir and serving it at `/uploads/<name>`.
+fn api_admin_upload(root: &Path, req: &Request) -> Response {
+    if req.method != Method::Post {
+        return json(405, &error_value("method not allowed"));
+    }
+    let ct = req.header("Content-Type").unwrap_or("");
+    let parts = match akurai_http::parse_multipart(ct, &req.body) {
+        Ok(p) => p,
+        Err(_) => return json(400, &error_value("invalid upload")),
+    };
+    let Some(file) = parts
+        .into_iter()
+        .find(|p| p.name == "file" && p.filename.is_some())
+    else {
+        return json(400, &error_value("No file"));
+    };
+    let ext = match file.content_type.as_deref() {
+        Some("image/png") => "png",
+        Some("image/jpeg") => "jpg",
+        Some("image/webp") => "webp",
+        _ => return json(415, &error_value("Unsupported file type")),
+    };
+    if file.data.is_empty() {
+        return json(400, &error_value("Empty file"));
+    }
+    if file.data.len() > 5 * 1024 * 1024 {
+        return json(413, &error_value("File too large (max 5 MB)"));
+    }
+    let dir = uploads_dir(root);
+    if fs::create_dir_all(&dir).is_err() {
+        return json(500, &error_value("storage error"));
+    }
+    let name = format!("{}-{}.{}", now_ms(), file.data.len(), ext);
+    if fs::write(dir.join(&name), &file.data).is_err() {
+        return json(500, &error_value("storage error"));
+    }
+    json(
+        200,
+        &Value::Object(vec![("url".into(), Value::Str(format!("/uploads/{name}")))]),
+    )
+}
+
+/// Serve an uploaded image (`/uploads/<name>`) from the data uploads dir.
+fn serve_upload(root: &Path, req_path: &str) -> Response {
+    let name = req_path.trim_start_matches("/uploads/");
+    if name.is_empty() || name.contains('/') || name.contains("..") {
+        return Response::not_found();
+    }
+    let path = uploads_dir(root).join(name);
+    match fs::read(&path) {
+        Ok(bytes) => {
+            with_no_cache(Response::ok().with_body(mime::for_path(&path.to_string_lossy()), bytes))
+        }
+        Err(_) => Response::not_found(),
+    }
+}
+
+/// `GET /book/{slot}` — deep-link booking page for a specific slot (mirrors the
+/// source `book/[slot]` page). `slot` is an epoch-ms integer or an ISO instant
+/// (tolerating `%3A`-encoded colons). Shows the date/time + the collections
+/// price and a booking action that POSTs to `/api/book`.
+fn book_slot_page(
+    root: &Path,
+    api: &CollectionsApi,
+    slot: &str,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
+    let decoded = slot.replace("%3A", ":").replace("%3a", ":");
+    let slot_ms = slot
+        .parse::<i64>()
+        .ok()
+        .or_else(|| booking::time::parse_instant(&decoded))
+        .or_else(|| booking::time::parse_instant(slot));
+    let Some(slot_ms) = slot_ms else {
+        return not_found_page(root, auth, req);
+    };
+    let user = auth.current_user(req);
+    let fixed = user
+        .as_ref()
+        .and_then(|u| collection_user_fixed_price(api, &u.email));
+    let rules = collection_pricing_rules(api);
+    let price =
+        booking::pricing::effective_slot_price(booking::time::hour_of(slot_ms), &rules, fixed);
+    let hour = booking::time::hour_of(slot_ms);
+    render(
+        root,
+        "book",
+        vec![
+            (
+                "page_title".into(),
+                Value::Str("Bóka tíma — Golfsetrið Akureyri".into()),
+            ),
+            ("slot_ms".into(), Value::Int(slot_ms)),
+            (
+                "slot_date".into(),
+                Value::Str(booking::time::date_string(slot_ms)),
+            ),
+            ("slot_time".into(), Value::Str(format!("{hour:02}:00"))),
+            ("price_label".into(), Value::Str(shop::format_isk(price))),
+            ("logged_in".into(), Value::Bool(user.is_some())),
+        ],
+        auth,
+        req,
+    )
 }
 
 /// Load the shared page context from `backend/page.json`, or an empty object.
