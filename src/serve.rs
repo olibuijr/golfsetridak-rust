@@ -295,7 +295,9 @@ fn dispatch(
         }
         "/api/cart" => api_cart(cart_store, req, auth),
         "/api/cart/items" => api_cart_items(store, collections_api, cart_store, req, None, auth),
-        "/api/cart/items/bulk" => api_cart_items_bulk(store, collections_api, cart_store, req, auth),
+        "/api/cart/items/bulk" => {
+            api_cart_items_bulk(store, collections_api, cart_store, req, auth)
+        }
 
         // Gift card API (Phase 3). Public lookup + redeem; admin issuance/listing gated.
         "/api/cart/gift-card/lookup" => api_giftcard_lookup(giftcard_store, cart_store, req),
@@ -646,8 +648,15 @@ fn api_book(
         booking::pricing::effective_slot_price(booking::time::hour_of(slot_ms), &rules, fixed)
     });
 
-    match store.create_booking_priced(&user_id, slot_ms, payment_type, ref_id, notes, single_price, now)
-    {
+    match store.create_booking_priced(
+        &user_id,
+        slot_ms,
+        payment_type,
+        ref_id,
+        notes,
+        single_price,
+        now,
+    ) {
         Ok(id) => json(
             200,
             &Value::Object(vec![(
@@ -1042,7 +1051,10 @@ fn api_admin_products(api: &CollectionsApi, req: &Request, path_id: Option<&str>
                     Ok(c) => c,
                     Err(r) => return r,
                 };
-                patch.push(("category".into(), cat.map(Value::Int).unwrap_or(Value::Null)));
+                patch.push((
+                    "category".into(),
+                    cat.map(Value::Int).unwrap_or(Value::Null),
+                ));
             }
             if let Some(active) = bool_field(&body, "active") {
                 patch.push(("active".into(), Value::Bool(active)));
@@ -2334,7 +2346,11 @@ fn admin_product_form_page(
     req: &Request,
 ) -> Response {
     let product = match id {
-        Some(id) => match id.parse::<i64>().ok().and_then(|n| api.record_by_id("products", n)) {
+        Some(id) => match id
+            .parse::<i64>()
+            .ok()
+            .and_then(|n| api.record_by_id("products", n))
+        {
             Some(product) => Some(product),
             None => return not_found_page(root, auth, req),
         },
