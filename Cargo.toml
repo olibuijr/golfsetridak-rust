@@ -34,6 +34,14 @@ akurai-storage = { path = "../AkurAI-Framework/crates/storage" }
 # Phase 4 auth: SHA-1 (RFC 6455) from the WebSocket crate, reused for
 # salted OTP/session hashing — consistent with the framework's own auth.rs.
 akurai-ws = { path = "../AkurAI-Framework/crates/ws" }
+# Collections auto-API: the framework's declarative REST engine that mounts
+# backend/collections.toml as a live CRUD + ?search surface. `akurai-blobs`
+# backs File-field uploads and `akurai-vector` backs semantic ?search; both are
+# used by the vendored collections_api glue (src/collections_api.rs).
+akurai-collections = { path = "../AkurAI-Framework/crates/collections" }
+akurai-blobs = { path = "../AkurAI-Framework/crates/blobs" }
+akurai-vector = { path = "../AkurAI-Framework/crates/vector" }
+akurai-toml = { path = "../AkurAI-Framework/crates/toml" }
 
 # Match the framework's release profile: one small, stripped, fully-optimized
 # static binary.

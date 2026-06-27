@@ -17,6 +17,7 @@ use crate::auth;
 use crate::booking::{self, Store as BookingStore};
 use crate::cart::{self, Store as CartStore};
 use crate::checkout::{self, Store as CheckoutStore};
+use crate::collections_api::CollectionsApi;
 use crate::content;
 use crate::giftcards::{self, IssueParams, Store as GiftCardStore};
 use crate::mime;
@@ -79,6 +80,23 @@ pub fn run(cfg: Config) -> io::Result<()> {
         .unwrap_or_else(|| data_dir.join("auth"));
     let auth = Arc::new(auth::State::open(&auth_data)?);
 
+    // Auto-generated REST API from backend/collections.toml. Mounts a live CRUD
+    // + ?search surface under /api/collections/<name>/records. An absent file →
+    // zero collections and the server behaves exactly as before; a malformed
+    // schema fails `serve` loudly here rather than silently dropping routes. The
+    // store opens data/{collections,embeddings,blobs}.db under the project root
+    // (the sibling-of-`frontend/` dir that already holds backend/ and data/).
+    let project_root = root
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| root.clone());
+    let collections_api = Arc::new(CollectionsApi::open(&project_root).map_err(|msg| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("collections.toml: {msg}"),
+        )
+    })?);
+
     println!("Golfsetrið Akureyri — golfsetridak v{VERSION} (on AkurAI-Framework)");
     println!("  serving {}", root.display());
     println!("  booking db: {}", data_dir.display());
@@ -89,6 +107,10 @@ pub fn run(cfg: Config) -> io::Result<()> {
     println!("  → http://{local}");
     println!("  giftcards db: {}", giftcard_data_dir(&root).display());
     println!("  utilities.css: served at /utilities.css");
+    println!(
+        "  collections: {} mounted from backend/collections.toml",
+        collections_api.collections().len()
+    );
 
     // Outermost first: security headers stamp every reply, then logging + timing.
     let middleware = MiddlewareStack::new()
@@ -105,6 +127,7 @@ pub fn run(cfg: Config) -> io::Result<()> {
             &settings_store,
             &giftcard_store,
             &checkout_store,
+            &collections_api,
             &auth,
             req,
         )
@@ -216,6 +239,7 @@ fn dispatch_reply(
     settings_store: &crate::admin::settings::Store,
     giftcard_store: &GiftCardStore,
     checkout_store: &CheckoutStore,
+    collections_api: &CollectionsApi,
     auth: &auth::State,
     req: &Request,
 ) -> Reply {
@@ -235,6 +259,7 @@ fn dispatch_reply(
             settings_store,
             giftcard_store,
             checkout_store,
+            collections_api,
             auth,
             req,
         )),
@@ -251,6 +276,7 @@ fn dispatch(
     settings_store: &crate::admin::settings::Store,
     giftcard_store: &GiftCardStore,
     checkout_store: &CheckoutStore,
+    collections_api: &CollectionsApi,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
@@ -470,6 +496,32 @@ fn dispatch(
                 auth,
                 req,
             )
+        }
+
+        // Auto-API: backend/collections.toml mounted as live CRUD + ?search.
+        // Handled before the generic /api/* 404 below. A non-collections shape
+        // makes `dispatch` return None and we answer 404 (it is an /api/ path,
+        // which would 404 anyway). The 4-segment records/id/field GET streams a
+        // stored File-field blob as raw bytes via `download`.
+        p if p == "/api/collections" || p.starts_with("/api/collections/") => {
+            let rest = p.trim_start_matches("/api/collections");
+            let segments: Vec<&str> = rest.split('/').filter(|s| !s.is_empty()).collect();
+            if let [name, "records", id, field] = segments.as_slice() {
+                if req.method == Method::Get {
+                    return collections_api.download(name, id, field);
+                }
+            }
+            let content_type = req.header("Content-Type");
+            match collections_api.dispatch(
+                &req.method,
+                &segments,
+                req.query.as_deref(),
+                content_type,
+                &req.body,
+            ) {
+                Some((status, value)) => json(status, &value),
+                None => json(404, &error_value("not found")),
+            }
         }
 
         // Unknown API routes are a hard JSON 404, never an HTML fallback.

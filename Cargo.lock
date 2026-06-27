@@ -3,6 +3,21 @@
 version = 4
 
 [[package]]
+name = "akurai-blobs"
+version = "0.8.1"
+dependencies = [
+ "akurai-storage",
+]
+
+[[package]]
+name = "akurai-collections"
+version = "0.8.1"
+dependencies = [
+ "akurai-json",
+ "akurai-storage",
+]
+
+[[package]]
 name = "akurai-css"
 version = "0.8.1"
 
@@ -34,6 +49,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "akurai-toml"
+version = "0.8.1"
+
+[[package]]
+name = "akurai-vector"
+version = "0.8.1"
+dependencies = [
+ "akurai-json",
+]
+
+[[package]]
 name = "akurai-ws"
 version = "0.8.1"
 dependencies = [
@@ -44,6 +70,8 @@ dependencies = [
 name = "golfsetridak"
 version = "0.0.10"
 dependencies = [
+ "akurai-blobs",
+ "akurai-collections",
  "akurai-css",
  "akurai-http",
  "akurai-json",
@@ -51,5 +79,7 @@ dependencies = [
  "akurai-router",
  "akurai-storage",
  "akurai-template",
+ "akurai-toml",
+ "akurai-vector",
  "akurai-ws",
 ]
