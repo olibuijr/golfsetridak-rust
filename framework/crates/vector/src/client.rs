@@ -8,7 +8,7 @@
 use akurai_json::{parse, Value};
 
 use crate::error::EmbedError;
-use crate::http::{build_request, fetch, parse_endpoint};
+use crate::http::{build_request, build_request_with_headers, fetch, parse_endpoint};
 
 /// The `input` field of an embeddings request: one string or a batch.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,6 +53,19 @@ pub fn embed(endpoint: &str, model: &str, text: &str) -> Result<Vec<f32>, EmbedE
         .ok_or_else(|| EmbedError::UnexpectedShape("no embedding returned".into()))
 }
 
+/// Embed a single string while sending `Authorization: Bearer <token>`.
+pub fn embed_with_bearer(
+    endpoint: &str,
+    model: &str,
+    text: &str,
+    token: &str,
+) -> Result<Vec<f32>, EmbedError> {
+    let input = EmbedInput::Single(text.to_string());
+    let mut out = run_with_bearer(endpoint, model, &input, token)?;
+    out.pop()
+        .ok_or_else(|| EmbedError::UnexpectedShape("no embedding returned".into()))
+}
+
 /// Embed many strings in one request. Returns one vector per input, in order.
 pub fn embed_many(
     endpoint: &str,
@@ -66,11 +79,50 @@ pub fn embed_many(
     run(endpoint, model, &input)
 }
 
+/// Embed many strings while sending `Authorization: Bearer <token>`.
+pub fn embed_many_with_bearer(
+    endpoint: &str,
+    model: &str,
+    texts: &[&str],
+    token: &str,
+) -> Result<Vec<Vec<f32>>, EmbedError> {
+    if texts.is_empty() {
+        return Ok(Vec::new());
+    }
+    let input = EmbedInput::Many(texts.iter().map(|t| t.to_string()).collect());
+    run_with_bearer(endpoint, model, &input, token)
+}
+
 /// Shared path: parse endpoint → build request → round-trip → parse body →
 /// verify count.
 fn run(endpoint: &str, model: &str, input: &EmbedInput) -> Result<Vec<Vec<f32>>, EmbedError> {
     let ep = parse_endpoint(endpoint)?;
     let request = build_request(&ep.host, ep.port, model, input);
+    let body = fetch(&ep, &request)?;
+    let embeddings = parse_embeddings_response(&body)?;
+    let expected = input.expected_len();
+    if embeddings.len() != expected {
+        return Err(EmbedError::CountMismatch {
+            expected,
+            got: embeddings.len(),
+        });
+    }
+    Ok(embeddings)
+}
+
+fn run_with_bearer(
+    endpoint: &str,
+    model: &str,
+    input: &EmbedInput,
+    token: &str,
+) -> Result<Vec<Vec<f32>>, EmbedError> {
+    if token.trim().is_empty() {
+        return run(endpoint, model, input);
+    }
+    let ep = parse_endpoint(endpoint)?;
+    let auth = format!("Bearer {}", token.trim());
+    let request =
+        build_request_with_headers(&ep.host, ep.port, model, input, &[("Authorization", &auth)]);
     let body = fetch(&ep, &request)?;
     let embeddings = parse_embeddings_response(&body)?;
     let expected = input.expected_len();
@@ -213,6 +265,10 @@ mod tests {
         // No endpoint is touched for an empty batch.
         assert_eq!(
             embed_many("http://0.0.0.0:1", "m", &[]).unwrap(),
+            Vec::<Vec<f32>>::new()
+        );
+        assert_eq!(
+            embed_many_with_bearer("http://0.0.0.0:1", "m", &[], "tok").unwrap(),
             Vec::<Vec<f32>>::new()
         );
     }

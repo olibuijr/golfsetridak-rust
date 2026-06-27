@@ -100,6 +100,24 @@ cp -r frontend backend content "$STAGE/"; rm -rf "$STAGE/backend/data" "$STAGE/d
 command -v akurai-ec2 >/dev/null || die "akurai-ec2 not on PATH"
 say "Deploy: $NAME on 127.0.0.1:$PORT → $DOMAIN"
 akurai-ec2 deploy-binary "$NAME" "$MUSL" "$PORT" "$STAGE"
+say "Embeddings: configure Router-backed semantic search"
+ssh "$SSH" "sudo bash -s" <<'EMBED'
+set -euo pipefail
+mkdir -p /etc/golfsetridak-rust /etc/systemd/system/golfsetridak-rust.service.d
+ROUTER_KEY="$(awk -F= '/^AKURAI_ROUTER_API_KEY=/{print substr($0, index($0, "=") + 1)}' /etc/akurai-router/router.env 2>/dev/null || true)"
+cat > /etc/golfsetridak-rust/env <<EOF
+AKURAI_EMBED_URL=http://127.0.0.1:4219/v1/embeddings
+AKURAI_EMBED_MODEL=intfloat/multilingual-e5-small
+AKURAI_EMBED_API_KEY=$ROUTER_KEY
+EOF
+chmod 0600 /etc/golfsetridak-rust/env
+cat > /etc/systemd/system/golfsetridak-rust.service.d/10-embeddings.conf <<EOF
+[Service]
+EnvironmentFile=/etc/golfsetridak-rust/env
+EOF
+systemctl daemon-reload
+systemctl restart golfsetridak-rust.service
+EMBED
 akurai-ec2 nginx-proxy "$DOMAIN" "$PORT"
 akurai-ec2 tls "$DOMAIN" || say "  TLS deferred — run 'akurai-ec2 tls $DOMAIN' once DNS resolves"
 

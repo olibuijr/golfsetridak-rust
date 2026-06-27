@@ -89,25 +89,59 @@ fn strip_ci_prefix<'a>(s: &'a str, prefix: &str) -> Option<&'a str> {
 /// connection is closed after the response (`Connection: close`) so the client
 /// can read until EOF.
 pub fn build_request(host: &str, port: u16, model: &str, input: &EmbedInput) -> String {
+    build_request_with_headers(host, port, model, input, &[])
+}
+
+/// Build a request with additional HTTP headers. Header names and values with
+/// CR/LF are skipped so env-sourced tokens cannot inject extra headers.
+pub fn build_request_with_headers(
+    host: &str,
+    port: u16,
+    model: &str,
+    input: &EmbedInput,
+    extra_headers: &[(&str, &str)],
+) -> String {
     let body = input.to_json_body(model);
     let host_header = if port == 80 {
         host.to_string()
     } else {
         format!("{host}:{port}")
     };
+    let mut header_block = String::new();
+    for (name, value) in extra_headers {
+        if safe_header_name(name) && safe_header_value(value) {
+            header_block.push_str(name);
+            header_block.push_str(": ");
+            header_block.push_str(value);
+            header_block.push_str("\r\n");
+        }
+    }
     format!(
         "POST /v1/embeddings HTTP/1.1\r\n\
          Host: {host_header}\r\n\
          Content-Type: application/json\r\n\
          Accept: application/json\r\n\
+         {extra_headers}\
          Content-Length: {len}\r\n\
          Connection: close\r\n\
          \r\n\
          {body}",
         host_header = host_header,
+        extra_headers = header_block,
         len = body.len(),
         body = body,
     )
+}
+
+fn safe_header_name(value: &str) -> bool {
+    !value.is_empty()
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+fn safe_header_value(value: &str) -> bool {
+    !value.bytes().any(|b| b == b'\r' || b == b'\n')
 }
 
 /// Split a raw HTTP response into `(status_code, body)`.
@@ -236,6 +270,36 @@ mod tests {
         let input = EmbedInput::Single("x".into());
         let req = build_request("localhost", 80, "m", &input);
         assert!(req.contains("Host: localhost\r\n"));
+    }
+
+    #[test]
+    fn build_request_accepts_safe_extra_headers() {
+        let input = EmbedInput::Single("x".into());
+        let req = build_request_with_headers(
+            "localhost",
+            80,
+            "m",
+            &input,
+            &[("Authorization", "Bearer akr_test")],
+        );
+        assert!(req.contains("Authorization: Bearer akr_test\r\n"));
+    }
+
+    #[test]
+    fn build_request_skips_unsafe_extra_headers() {
+        let input = EmbedInput::Single("x".into());
+        let req = build_request_with_headers(
+            "localhost",
+            80,
+            "m",
+            &input,
+            &[
+                ("Bad\r\nName", "ok"),
+                ("Authorization", "Bearer x\r\nBad: y"),
+            ],
+        );
+        assert!(!req.contains("Bad"));
+        assert!(!req.contains("Authorization"));
     }
 
     #[test]

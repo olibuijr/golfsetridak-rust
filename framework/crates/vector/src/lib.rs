@@ -7,7 +7,8 @@
 //!    byte blobs in the B+tree.
 //! 2. **Embedding client** — [`embed`] / [`embed_many`] POST to an
 //!    OpenAI-compatible `/v1/embeddings` endpoint over a minimal plain-HTTP/1.1
-//!    client built on `std::net::TcpStream`. **No TLS** (std can't; TLS
+//!    client built on `std::net::TcpStream`. Bearer-token variants are
+//!    available for protected loopback routers. **No TLS** (std can't; TLS
 //!    terminates at the edge) — an `https://` endpoint returns
 //!    [`EmbedError::TlsUnsupported`].
 //!
@@ -27,7 +28,10 @@ mod error;
 mod http;
 mod math;
 
-pub use client::{embed, embed_many, parse_embeddings_response, EmbedInput};
+pub use client::{
+    embed, embed_many, embed_many_with_bearer, embed_with_bearer, parse_embeddings_response,
+    EmbedInput,
+};
 pub use codec::{decode, encode};
 pub use error::EmbedError;
 pub use http::{build_request, parse_endpoint, split_response, Endpoint};

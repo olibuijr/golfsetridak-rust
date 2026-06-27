@@ -24,6 +24,8 @@
 //!   by [`akurai_vector::embed`] (no TLS); use a plain-HTTP endpoint.
 //! - `AKURAI_EMBED_MODEL` — the embedding model name (defaults to
 //!   `embeddinggemma`).
+//! - `AKURAI_EMBED_API_KEY` — optional bearer token for protected embedding
+//!   routers.
 
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -52,6 +54,7 @@ pub struct CollectionsApi {
     blobs: Arc<Mutex<BlobStore>>,
     embed_url: Option<String>,
     embed_model: String,
+    embed_api_key: Option<String>,
 }
 
 impl CollectionsApi {
@@ -85,6 +88,9 @@ impl CollectionsApi {
                 .ok()
                 .filter(|s| !s.is_empty())
                 .unwrap_or_else(|| DEFAULT_EMBED_MODEL.to_string()),
+            std::env::var("AKURAI_EMBED_API_KEY")
+                .ok()
+                .filter(|s| !s.is_empty()),
         ))
     }
 
@@ -97,6 +103,7 @@ impl CollectionsApi {
         blobs: BlobStore,
         embed_url: Option<String>,
         embed_model: String,
+        embed_api_key: Option<String>,
     ) -> CollectionsApi {
         CollectionsApi {
             collections,
@@ -105,6 +112,7 @@ impl CollectionsApi {
             blobs: Arc::new(Mutex::new(blobs)),
             embed_url,
             embed_model,
+            embed_api_key,
         }
     }
 
@@ -531,7 +539,7 @@ impl CollectionsApi {
             return store.search(coll, query, limit);
         };
         // Embed the query; any failure falls back to substring search.
-        let qvec = match akurai_vector::embed(url, &self.embed_model, query) {
+        let qvec = match self.embed_text(url, query) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!("collections: query embed failed ({e}); using substring search");
@@ -588,7 +596,7 @@ impl CollectionsApi {
         let Some(id) = record.get("id").and_then(Value::as_i64) else {
             return;
         };
-        let vec = match akurai_vector::embed(url, &self.embed_model, &text) {
+        let vec = match self.embed_text(url, &text) {
             Ok(v) => v,
             Err(e) => {
                 eprintln!(
@@ -606,6 +614,13 @@ impl CollectionsApi {
                 "collections: embeddings write failed for {}:{id} ({e})",
                 coll.name
             );
+        }
+    }
+
+    fn embed_text(&self, url: &str, text: &str) -> Result<Vec<f32>, akurai_vector::EmbedError> {
+        match self.embed_api_key.as_deref() {
+            Some(token) => akurai_vector::embed_with_bearer(url, &self.embed_model, text, token),
+            None => akurai_vector::embed(url, &self.embed_model, text),
         }
     }
 
@@ -1067,7 +1082,15 @@ name = \"posts\"
         let embeddings = BTree::open(dir.join("e.db")).unwrap();
         let blobs = BlobStore::open(dir.join("b.db")).unwrap();
         // No embed URL → substring search, no network.
-        CollectionsApi::from_parts(collections, store, embeddings, blobs, None, "x".into())
+        CollectionsApi::from_parts(
+            collections,
+            store,
+            embeddings,
+            blobs,
+            None,
+            "x".into(),
+            None,
+        )
     }
 
     /// JSON dispatch helper: no multipart content type, body bytes from `json`.
