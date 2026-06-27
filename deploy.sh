@@ -130,4 +130,6 @@ git push -u origin HEAD; git push origin "v$NEW"
 code=$(ssh "$SSH" "curl -s -o /dev/null -w '%{http_code}' https://$DOMAIN/login" 2>/dev/null || echo 000)
 say "Verify (live): https://$DOMAIN/login → $code"
 say "Released v$NEW → https://$DOMAIN  (DB snapshots: rollback with ./deploy.sh rollback-db)"
-[ "$MODE" = "prod" ] && say "CUTOVER done. Next app retained for rollback — see DEPLOY.md."
+if [ "$MODE" = "prod" ]; then
+  say "CUTOVER done. Next app retained for rollback — see DEPLOY.md."
+fi
