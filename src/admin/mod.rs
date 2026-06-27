@@ -19,6 +19,7 @@ pub mod settings;
 
 use crate::auth;
 use crate::booking::{self, Booking, Store as BookingStore};
+use crate::collections_api::CollectionsApi;
 use crate::checkout::Store as CheckoutStore;
 use akurai_http::form::{field, parse_urlencoded};
 use akurai_http::{Method, Request, Response};
@@ -161,13 +162,38 @@ pub fn admin_payments_page(
     )
 }
 
-/// Render the users administration page (shell).
+/// Render the users administration page from the `users` collection (Phase 4A).
+/// `name`/`phone`/`role`/`fixed_price` map straight onto the table; `role`
+/// defaults to `customer` and an unset `fixed_price` shows an em dash. The
+/// empty-state note only appears when there are no users.
 pub fn admin_users_page(
     root: &Path,
-    _store: &BookingStore,
+    api: &CollectionsApi,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
+    let users: Vec<Value> = api
+        .records("users")
+        .into_iter()
+        .map(|u| {
+            let s = |k: &str| u.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            let role = match s("role") {
+                r if r.is_empty() => "customer".to_string(),
+                r => r,
+            };
+            let fixed_price_label = match u.get("fixed_price").and_then(Value::as_i64) {
+                Some(p) => crate::serve::format_isk(p),
+                None => "—".to_string(),
+            };
+            Value::Object(vec![
+                ("name".into(), Value::Str(s("name"))),
+                ("phone".into(), Value::Str(s("phone"))),
+                ("role".into(), Value::Str(role)),
+                ("fixedPriceLabel".into(), Value::Str(fixed_price_label)),
+            ])
+        })
+        .collect();
+    let no_users = users.is_empty();
     crate::serve::render(
         root,
         "admin_users",
@@ -176,7 +202,8 @@ pub fn admin_users_page(
                 "page_title".into(),
                 Value::Str("Notendur — Stjórnborð".into()),
             ),
-            ("users".into(), Value::Array(vec![])),
+            ("users".into(), Value::Array(users)),
+            ("no_users".into(), Value::Bool(no_users)),
         ],
         auth,
         req,

@@ -113,6 +113,33 @@ impl CollectionsApi {
         &self.collections
     }
 
+    // ---- in-process reads (Phase 4A) --------------------------------------
+    //
+    // Thin read helpers so page handlers can query the collections store
+    // directly instead of round-tripping through the HTTP dispatch. They mirror
+    // the `list` arm of [`dispatch`] (a plain `Store::list`, newest-first) but
+    // skip JSON (de)serialization and status codes — these never error to the
+    // caller; an unknown collection simply yields nothing.
+
+    /// Every record of `collection`, newest-first (highest id first), exactly as
+    /// the list endpoint returns them. An unknown collection yields an empty vec.
+    pub fn records(&self, collection: &str) -> Vec<Value> {
+        let Some(coll) = self.collection(collection) else {
+            return Vec::new();
+        };
+        let mut store = self.store.lock().expect("store mutex poisoned");
+        store.list(coll, None).unwrap_or_default()
+    }
+
+    /// The first record of `collection` whose string field `field` equals
+    /// `value`, or `None`. Used to key business-user records by email/phone,
+    /// neither of which is the auto-increment id.
+    pub fn find_by(&self, collection: &str, field: &str, value: &str) -> Option<Value> {
+        self.records(collection)
+            .into_iter()
+            .find(|r| r.get(field).and_then(Value::as_str) == Some(value))
+    }
+
     /// Route a `/api/collections...` request. `segments` are the path segments
     /// *after* `/api/collections` (so `/api/collections/posts/records/3` arrives
     /// as `["posts", "records", "3"]`). Returns `None` when the path shape is

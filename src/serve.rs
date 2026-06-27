@@ -289,11 +289,11 @@ fn dispatch(
 
         // Booking API (Phase 3). Methods are checked inside each handler.
         "/api/availability" => api_availability(store, req, auth),
-        "/api/slot-price" => api_slot_price(store, req, auth),
+        "/api/slot-price" => api_slot_price(collections_api, req, auth),
         "/api/book" => api_book(store, req, auth),
         "/api/bookings" => api_bookings(store, req, auth),
-        "/api/shop/products" => api_shop_products(shop_store, req),
-        "/api/shop/categories" => api_shop_categories(shop_store, req),
+        "/api/shop/products" => api_shop_products(collections_api, req),
+        "/api/shop/categories" => api_shop_categories(collections_api, req),
         "/api/admin/shop/products" => {
             if !auth.require_role(req, auth::Role::Admin) {
                 return json(401, &error_value("Unauthorized"));
@@ -373,7 +373,7 @@ fn dispatch(
         }
 
         // Home: the server-rendered booking calendar (replaces the placeholder).
-        "/" => calendar_page(root, store, auth, req),
+        "/" => calendar_page(root, store, collections_api, auth, req),
 
         // Checkout + payment result pages (Phase 3 checkout flow).
         "/checkout" => checkout::page_checkout(root, cart_store, auth, req),
@@ -393,21 +393,21 @@ fn dispatch(
         "/personuvernd" => legal(root, "personuvernd", auth, req),
         "/skilmalar" => legal(root, "skilmalar", auth, req),
         "/um-okkur" => about(root, auth, req),
-        "/verslun" => shop_page(root, shop_store, auth, req),
+        "/verslun" => shop_page(root, collections_api, auth, req),
         "/my" => my_page(root, store, auth, req),
-        "/my/verslun" => shop_page(root, shop_store, auth, req),
+        "/my/verslun" => shop_page(root, collections_api, auth, req),
         "/my/verslun/karfa" => cart_page(root, cart_store, req, auth),
         "/admin/vorur" => {
             if !auth.require_role(req, auth::Role::Admin) {
                 return Response::new(302).with_header("Location", "/login");
             }
-            admin_products_page(root, shop_store, auth, req)
+            admin_products_page(root, collections_api, auth, req)
         }
         "/admin/vorur/flokkar" => {
             if !auth.require_role(req, auth::Role::Admin) {
                 return Response::new(302).with_header("Location", "/login");
             }
-            admin_categories_page(root, shop_store, auth, req)
+            admin_categories_page(root, collections_api, auth, req)
         }
         "/admin/vorur/nytt" => {
             if !auth.require_role(req, auth::Role::Admin) {
@@ -450,7 +450,7 @@ fn dispatch(
             if !auth.require_role(req, auth::Role::Admin) {
                 return Response::new(302).with_header("Location", "/login");
             }
-            crate::admin::admin_users_page(root, store, auth, req)
+            crate::admin::admin_users_page(root, collections_api, auth, req)
         }
         "/admin/settings" => {
             if !auth.require_role(req, auth::Role::Admin) {
@@ -579,7 +579,7 @@ fn api_availability(store: &BookingStore, req: &Request, auth: &auth::State) -> 
 }
 
 /// `GET /api/slot-price?hour=H&userId=X` — the effective price for an hour.
-fn api_slot_price(store: &BookingStore, req: &Request, auth: &auth::State) -> Response {
+fn api_slot_price(api: &CollectionsApi, req: &Request, auth: &auth::State) -> Response {
     if req.method != Method::Get {
         return json(405, &error_value("method not allowed"));
     }
@@ -589,7 +589,11 @@ fn api_slot_price(store: &BookingStore, req: &Request, auth: &auth::State) -> Re
         return json(400, &error_value("hour must be 0-23"));
     };
     let user = resolve_user_id(req, None, auth);
-    let price = store.slot_price(hour, user.as_deref());
+    let rules = collection_pricing_rules(api);
+    let fixed = user
+        .as_deref()
+        .and_then(|u| collection_user_fixed_price(api, u));
+    let price = booking::pricing::effective_slot_price(hour, &rules, fixed);
     json(
         200,
         &Value::Object(vec![("price".into(), Value::Int(price))]),
@@ -891,7 +895,7 @@ fn booking_value(b: &booking::Booking) -> Value {
 
 // ---- shop + cart API ------------------------------------------------------
 
-fn api_shop_products(store: &ShopStore, req: &Request) -> Response {
+fn api_shop_products(api: &CollectionsApi, req: &Request) -> Response {
     if req.method != Method::Get {
         return json(405, &error_value("method not allowed"));
     }
@@ -899,23 +903,21 @@ fn api_shop_products(store: &ShopStore, req: &Request) -> Response {
         200,
         &Value::Object(vec![(
             "products".into(),
-            Value::Array(product_values(store, true)),
+            Value::Array(collection_product_values(api, true)),
         )]),
     )
 }
 
-fn api_shop_categories(store: &ShopStore, req: &Request) -> Response {
+fn api_shop_categories(api: &CollectionsApi, req: &Request) -> Response {
     if req.method != Method::Get {
         return json(405, &error_value("method not allowed"));
     }
-    let rows = store
-        .list_categories(false)
-        .iter()
-        .map(shop::category_value)
-        .collect();
     json(
         200,
-        &Value::Object(vec![("categories".into(), Value::Array(rows))]),
+        &Value::Object(vec![(
+            "categories".into(),
+            Value::Array(collection_category_values(api)),
+        )]),
     )
 }
 
@@ -1718,6 +1720,9 @@ fn cart_json(status: u16, summary: &cart::CartSummary, set_cookie: bool) -> Resp
     }
 }
 
+// Admin product CRUD (`api_admin_products`) lists from the hand-rolled
+// `ShopStore` it also writes to — distinct from the collections-backed read
+// used by the public shop page / `/api/shop/products`.
 fn product_values(store: &ShopStore, active_only: bool) -> Vec<Value> {
     store
         .list_products(active_only)
@@ -1897,9 +1902,187 @@ fn my_page(root: &Path, store: &BookingStore, auth: &auth::State, req: &Request)
     )
 }
 
+// ---- collections-backed catalog + pricing reads (Phase 4A) ----------------
+//
+// Phase 4A points the catalog/config READ paths at the framework collections
+// store (mounted from backend/collections.toml) instead of the hand-rolled
+// `ShopStore`/booking pricing trees. These helpers adapt collection records
+// (auto-int `id` + snake_case fields) into the template-facing Values the pages
+// already expect. Cart/booking *writes* still use the hand-rolled stores.
+
+/// A `Some(trimmed)` string Value, or `Null` for absent/blank text.
+fn opt_str_value(s: Option<&str>) -> Value {
+    match s.map(str::trim).filter(|x| !x.is_empty()) {
+        Some(x) => Value::Str(x.to_string()),
+        None => Value::Null,
+    }
+}
+
+/// Sort catalog records (products/categories) by position, then created_at,
+/// then name — matching the hand-rolled store's ordering.
+fn sort_catalog(records: &mut [Value]) {
+    records.sort_by(|a, b| {
+        let key = |v: &Value| {
+            (
+                v.get("position").and_then(Value::as_i64).unwrap_or(0),
+                v.get("created_at").and_then(Value::as_i64).unwrap_or(0),
+                v.get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            )
+        };
+        key(a).cmp(&key(b))
+    });
+}
+
+/// Map of `product_categories` record id -> category name.
+fn collection_category_names(api: &CollectionsApi) -> std::collections::HashMap<i64, String> {
+    api.records("product_categories")
+        .into_iter()
+        .filter_map(|c| {
+            let id = c.get("id").and_then(Value::as_i64)?;
+            let name = c.get("name").and_then(Value::as_str)?.to_string();
+            Some((id, name))
+        })
+        .collect()
+}
+
+/// Adapt a `products` record into the template shape (mirrors
+/// [`shop::product_value`]). `category` is a relation id resolved to a name via
+/// `cat_names`.
+fn product_value_from_record(
+    p: &Value,
+    cat_names: &std::collections::HashMap<i64, String>,
+) -> Value {
+    let price = p.get("price").and_then(Value::as_i64).unwrap_or(0);
+    let category_id = p.get("category").and_then(Value::as_i64);
+    let category_name = category_id.and_then(|id| cat_names.get(&id)).cloned();
+    let image_url = p.get("image_url").and_then(Value::as_str);
+    Value::Object(vec![
+        (
+            "id".into(),
+            Value::Int(p.get("id").and_then(Value::as_i64).unwrap_or(0)),
+        ),
+        (
+            "name".into(),
+            Value::Str(
+                p.get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            ),
+        ),
+        (
+            "description".into(),
+            opt_str_value(p.get("description").and_then(Value::as_str)),
+        ),
+        ("price".into(), Value::Int(price)),
+        ("priceLabel".into(), Value::Str(format_isk(price))),
+        ("imageUrl".into(), opt_str_value(image_url)),
+        (
+            "categoryId".into(),
+            category_id.map(Value::Int).unwrap_or(Value::Null),
+        ),
+        (
+            "categoryName".into(),
+            category_name.map(Value::Str).unwrap_or(Value::Null),
+        ),
+        (
+            "active".into(),
+            Value::Bool(p.get("active").and_then(Value::as_bool).unwrap_or(true)),
+        ),
+        (
+            "position".into(),
+            Value::Int(p.get("position").and_then(Value::as_i64).unwrap_or(0)),
+        ),
+        (
+            "hasImage".into(),
+            Value::Bool(image_url.map(|s| !s.trim().is_empty()).unwrap_or(false)),
+        ),
+    ])
+}
+
+/// All products from the collections store, sorted, optionally active-only, as
+/// template Values.
+fn collection_product_values(api: &CollectionsApi, active_only: bool) -> Vec<Value> {
+    let cat_names = collection_category_names(api);
+    let mut products = api.records("products");
+    sort_catalog(&mut products);
+    products
+        .into_iter()
+        .filter(|p| !active_only || p.get("active").and_then(Value::as_bool).unwrap_or(true))
+        .map(|p| product_value_from_record(&p, &cat_names))
+        .collect()
+}
+
+/// Adapt a `product_categories` record into the template shape (mirrors
+/// [`shop::category_value`]).
+fn category_value_from_record(c: &Value) -> Value {
+    let s = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let active = c.get("active").and_then(Value::as_bool).unwrap_or(true);
+    Value::Object(vec![
+        (
+            "id".into(),
+            Value::Int(c.get("id").and_then(Value::as_i64).unwrap_or(0)),
+        ),
+        ("name".into(), Value::Str(s("name"))),
+        ("slug".into(), Value::Str(s("slug"))),
+        (
+            "description".into(),
+            opt_str_value(c.get("description").and_then(Value::as_str)),
+        ),
+        (
+            "position".into(),
+            Value::Int(c.get("position").and_then(Value::as_i64).unwrap_or(0)),
+        ),
+        ("active".into(), Value::Bool(active)),
+        ("inactive".into(), Value::Bool(!active)),
+    ])
+}
+
+/// All product categories from the collections store, sorted, as template Values.
+fn collection_category_values(api: &CollectionsApi) -> Vec<Value> {
+    let mut cats = api.records("product_categories");
+    sort_catalog(&mut cats);
+    cats.iter().map(category_value_from_record).collect()
+}
+
+/// Active pricing rules from the `pricing_rules` collection, in ascending-id
+/// (insertion) order so rule precedence matches the source seed. A missing
+/// `active` is treated as `true` (the source column default).
+fn collection_pricing_rules(api: &CollectionsApi) -> Vec<booking::pricing::PricingRule> {
+    let mut records = api.records("pricing_rules");
+    records.sort_by_key(|r| r.get("id").and_then(Value::as_i64).unwrap_or(0));
+    records
+        .into_iter()
+        .filter(|r| r.get("active").and_then(Value::as_bool).unwrap_or(true))
+        .filter_map(|r| {
+            Some(booking::pricing::PricingRule {
+                name: r
+                    .get("name")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                start_hour: r.get("start_hour").and_then(Value::as_i64)?,
+                end_hour: r.get("end_hour").and_then(Value::as_i64)?,
+                price: r.get("price").and_then(Value::as_i64).unwrap_or(0),
+            })
+        })
+        .collect()
+}
+
+/// A business user's `fixed_price` override from the `users` collection, keyed
+/// by email then phone (both unique in the source).
+fn collection_user_fixed_price(api: &CollectionsApi, user_id: &str) -> Option<i64> {
+    api.find_by("users", "email", user_id)
+        .or_else(|| api.find_by("users", "phone", user_id))
+        .and_then(|u| u.get("fixed_price").and_then(Value::as_i64))
+}
+
 // ---- shop + cart pages ----------------------------------------------------
 
-fn shop_page(root: &Path, store: &ShopStore, auth: &auth::State, req: &Request) -> Response {
+fn shop_page(root: &Path, api: &CollectionsApi, auth: &auth::State, req: &Request) -> Response {
     render(
         root,
         "shop",
@@ -1908,16 +2091,13 @@ fn shop_page(root: &Path, store: &ShopStore, auth: &auth::State, req: &Request) 
                 "page_title".into(),
                 Value::Str("Verslun — Golfsetrið Akureyri".into()),
             ),
-            ("products".into(), Value::Array(product_values(store, true))),
+            (
+                "products".into(),
+                Value::Array(collection_product_values(api, true)),
+            ),
             (
                 "categories".into(),
-                Value::Array(
-                    store
-                        .list_categories(false)
-                        .iter()
-                        .map(shop::category_value)
-                        .collect(),
-                ),
+                Value::Array(collection_category_values(api)),
             ),
         ],
         auth,
@@ -1962,7 +2142,7 @@ fn cart_page(root: &Path, store: &CartStore, req: &Request, auth: &auth::State) 
 
 fn admin_products_page(
     root: &Path,
-    store: &ShopStore,
+    api: &CollectionsApi,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
@@ -1973,7 +2153,7 @@ fn admin_products_page(
             ("page_title".into(), Value::Str("Vörur — Stjórnborð".into())),
             (
                 "products".into(),
-                Value::Array(product_values(store, false)),
+                Value::Array(collection_product_values(api, false)),
             ),
         ],
         auth,
@@ -1983,7 +2163,7 @@ fn admin_products_page(
 
 fn admin_categories_page(
     root: &Path,
-    store: &ShopStore,
+    api: &CollectionsApi,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
@@ -1997,13 +2177,7 @@ fn admin_categories_page(
             ),
             (
                 "categories".into(),
-                Value::Array(
-                    store
-                        .list_categories(false)
-                        .iter()
-                        .map(shop::category_value)
-                        .collect(),
-                ),
+                Value::Array(collection_category_values(api)),
             ),
         ],
         auth,
@@ -2182,11 +2356,18 @@ const DAY_NAMES: [&str; 7] = ["Sun", "Mán", "Þri", "Mið", "Fim", "Fös", "Lau
 /// Render the home booking calendar: availability + pricing across the booking
 /// window (14 days for an anonymous visitor, mirroring `getBookingWindowEnd`).
 /// Server-rendered — the slots are plain links/markup, no client JS required.
-fn calendar_page(root: &Path, store: &BookingStore, auth: &auth::State, req: &Request) -> Response {
+fn calendar_page(
+    root: &Path,
+    store: &BookingStore,
+    api: &CollectionsApi,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
     let now = now_ms();
     let start = booking::time::day_start(now);
     let days = 14; // anonymous default window
-    let availability = store.availability(start, days, None, now);
+    let rules = collection_pricing_rules(api);
+    let availability = store.availability_with(start, days, None, &rules, now);
 
     let day_values: Vec<Value> = availability
         .iter()
@@ -2215,8 +2396,7 @@ fn calendar_page(root: &Path, store: &BookingStore, auth: &auth::State, req: &Re
         })
         .collect();
 
-    let legend: Vec<Value> = store
-        .active_pricing_rules()
+    let legend: Vec<Value> = rules
         .iter()
         .map(|r| {
             Value::Object(vec![

@@ -217,10 +217,25 @@ impl Store {
         user_id: Option<&str>,
         now_ms: i64,
     ) -> Vec<DayAvailability> {
-        let start_day = day_start(start_ms);
-        let end = add_days(start_day, days);
         let fixed = user_id.and_then(|u| self.user_fixed_price(u));
         let rules = self.active_pricing_rules();
+        self.availability_with(start_ms, days, fixed, &rules, now_ms)
+    }
+
+    /// Like [`availability`](Self::availability), but with the pricing rules and
+    /// per-user `fixed_price` supplied by the caller. Phase 4A routes the page
+    /// layer here so slot prices come from the collections store while booked
+    /// slots still come from the (transactional) bookings tree.
+    pub fn availability_with(
+        &self,
+        start_ms: i64,
+        days: i64,
+        fixed: Option<i64>,
+        rules: &[PricingRule],
+        now_ms: i64,
+    ) -> Vec<DayAvailability> {
+        let start_day = day_start(start_ms);
+        let end = add_days(start_day, days);
 
         let mut t = self.lock();
         let booked = active_slot_set(&mut t.bookings, start_day, end);
@@ -243,7 +258,7 @@ impl Store {
                         SlotView {
                             hour,
                             starts_at: slot.key,
-                            price: effective_slot_price(hour, &rules, fixed),
+                            price: effective_slot_price(hour, rules, fixed),
                             status: status.into(),
                         }
                     })

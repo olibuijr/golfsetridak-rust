@@ -37,6 +37,8 @@
           {% endfor %}
         </tbody>
       </table>
-      <p class="muted admin-empty">Notendalisti birtist þegar gagnalagið er tengt (Phase 3).</p>
+      {% if no_users %}
+      <p class="muted admin-empty">Engir notendur skráðir enn.</p>
+      {% endif %}
     </section>
 {% include "footer" %}
