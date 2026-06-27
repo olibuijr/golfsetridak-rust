@@ -2,7 +2,7 @@
 <html lang="is">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>{{ page_title }}</title>
     {% if meta_description %}<meta name="description" content="{{ meta_description }}" />{% endif %}
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -21,6 +21,11 @@
   </head>
   <body>
     <header class="nav">
+      <button class="nav-toggle" type="button" aria-label="Opna valmynd" aria-controls="site-drawer" aria-expanded="false">
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+        <span class="nav-toggle-bar"></span>
+      </button>
       <a class="brand" href="/">
         <img class="brand-mark" src="/assets/mark.svg" width="34" height="34" alt="" aria-hidden="true" />
         <span class="brand-text">
@@ -28,7 +33,11 @@
           <span class="brand-place">{{ brand_place }}</span>
         </span>
       </a>
-      <nav class="nav-links">
+      <nav class="nav-links" id="site-drawer">
+        <div class="nav-drawer-head">
+          <span class="nav-drawer-title">Valmynd</span>
+          <button class="nav-drawer-close" type="button" aria-label="Loka valmynd">&times;</button>
+        </div>
         {% for link in nav %}<a href="{{ link.href }}">{{ link.label }}</a>{% endfor %}
       </nav>
       {% if auth_user_email %}
@@ -42,4 +51,5 @@
       <a class="btn btn-primary nav-login" href="/login">Innskrá</a>
       {% endif %}
     </header>
+    <div class="nav-overlay" hidden></div>
     <main class="container">

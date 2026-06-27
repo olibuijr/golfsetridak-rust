@@ -81,7 +81,7 @@ h3 { font-size: 1.25rem; }
   width: 100%;
   max-width: var(--maxw);
   margin-inline: auto;
-  padding: 40px 24px 72px;
+  padding: 40px max(24px, env(safe-area-inset-right)) max(72px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
   flex: 1 0 auto;
 }
 
@@ -94,7 +94,7 @@ h3 { font-size: 1.25rem; }
   display: flex;
   align-items: center;
   gap: 24px;
-  padding: 14px 24px;
+  padding: max(14px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 14px max(24px, env(safe-area-inset-left));
   background: rgba(10, 15, 12, 0.82);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
@@ -139,6 +139,106 @@ h3 { font-size: 1.25rem; }
 .nav-links a:hover { color: var(--brand-hover); }
 
 .nav-login { margin-left: auto; }
+
+/* ---- Mobile drawer nav (hamburger) --------------------------------- */
+/* Hidden on desktop; the @media (max-width: 780px) block below activates it. */
+
+.nav-toggle {
+  display: none;
+  flex-direction: column;
+  justify-content: center;
+  gap: 5px;
+  width: 42px;
+  height: 42px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  cursor: pointer;
+  flex: none;
+}
+.nav-toggle-bar {
+  display: block;
+  width: 20px;
+  height: 2px;
+  margin-inline: auto;
+  background: var(--text);
+  border-radius: 2px;
+}
+
+.nav-drawer-head { display: none; }
+.nav-drawer-title {
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-size: 0.8rem;
+  color: var(--brand-hover);
+}
+.nav-drawer-close {
+  border: none;
+  background: none;
+  color: var(--text);
+  font-size: 1.8rem;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+.nav-overlay { display: none; }
+
+@media (max-width: 780px) {
+  .nav { gap: 14px; }
+
+  .nav-toggle { display: inline-flex; }
+  .nav-drawer-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .nav-links {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: min(82vw, 320px);
+    flex-direction: column;
+    flex-wrap: nowrap;
+    align-items: stretch;
+    gap: 4px;
+    margin: 0;
+    padding:
+      max(18px, env(safe-area-inset-top)) 20px
+      max(20px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    box-shadow: 2px 0 28px rgba(0, 0, 0, 0.45);
+    transform: translateX(-100%);
+    transition: transform 0.28s ease;
+    z-index: 60;
+    overflow-y: auto;
+  }
+  .nav-links a {
+    padding: 12px 8px;
+    border-radius: var(--radius);
+    font-size: 1.05rem;
+  }
+  .nav-links a:hover { background: var(--surface-2); color: var(--text); }
+
+  body.nav-open .nav-links { transform: translateX(0); }
+  body.nav-open { overflow: hidden; }
+
+  .nav-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(0, 0, 0, 0.5);
+    -webkit-backdrop-filter: blur(2px);
+    backdrop-filter: blur(2px);
+  }
+  body.nav-open .nav-overlay { display: block; }
+}
 
 /* ---- Buttons -------------------------------------------------------- */
 
@@ -294,7 +394,7 @@ h3 { font-size: 1.25rem; }
   flex-shrink: 0;
   background: var(--surface);
   border-top: 1px solid var(--border);
-  padding: 48px 24px 28px;
+  padding: 48px max(24px, env(safe-area-inset-right)) max(28px, env(safe-area-inset-bottom)) max(24px, env(safe-area-inset-left));
 }
 .footer-grid {
   max-width: var(--maxw);
@@ -327,11 +427,6 @@ h3 { font-size: 1.25rem; }
   gap: 8px;
   color: var(--muted);
   font-size: 0.9rem;
-}
-
-@media (max-width: 640px) {
-  .nav { gap: 12px; flex-wrap: wrap; }
-  .nav-login { margin-left: 0; }
 }
 
 /* ---- Booking calendar ----------------------------------------------- */
