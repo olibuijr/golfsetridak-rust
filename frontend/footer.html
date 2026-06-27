@@ -69,7 +69,10 @@
         var loading = false;
 
         function formatISK(amount) {
-          return new Intl.NumberFormat('is-IS').format(Number(amount || 0)) + ' kr';
+          var value = Number(amount || 0);
+          var sign = value < 0 ? '-' : '';
+          var digits = String(Math.abs(Math.trunc(value)));
+          return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, '.') + ' kr';
         }
 
         function setStatus(message) {

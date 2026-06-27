@@ -56,6 +56,12 @@
           await window.GolfCart.removeItem(id);
         }
       }
+      function formatISK(amount) {
+        var value = Number(amount || 0);
+        var sign = value < 0 ? "-" : "";
+        var digits = String(Math.abs(Math.trunc(value)));
+        return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + " kr";
+      }
       document.addEventListener("golfcart:updated", function (event) {
         var cart = event.detail && event.detail.cart ? event.detail.cart : { items: [], subtotal: 0 };
         var items = Array.isArray(cart.items) ? cart.items : [];
@@ -74,7 +80,7 @@
           if (input) input.value = item.quantity;
         });
         var subtotal = document.querySelector("[data-cart-page-subtotal]");
-        if (subtotal) subtotal.textContent = new Intl.NumberFormat("is-IS").format(Number(cart.subtotal || 0)) + " kr";
+        if (subtotal) subtotal.textContent = formatISK(cart.subtotal || 0);
       });
     </script>
 {% include "footer" %}
