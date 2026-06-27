@@ -140,6 +140,15 @@ impl CollectionsApi {
             .find(|r| r.get(field).and_then(Value::as_str) == Some(value))
     }
 
+    /// The record of `collection` with the given auto-increment integer `id`,
+    /// or `None`. Used to resolve a cart product/package by the collection id
+    /// the shop now renders.
+    pub fn record_by_id(&self, collection: &str, id: i64) -> Option<Value> {
+        self.records(collection)
+            .into_iter()
+            .find(|r| r.get("id").and_then(Value::as_i64) == Some(id))
+    }
+
     /// Route a `/api/collections...` request. `segments` are the path segments
     /// *after* `/api/collections` (so `/api/collections/posts/records/3` arrives
     /// as `["posts", "records", "3"]`). Returns `None` when the path shape is

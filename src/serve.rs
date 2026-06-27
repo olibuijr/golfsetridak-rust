@@ -307,8 +307,8 @@ fn dispatch(
             api_admin_categories(shop_store, req, None)
         }
         "/api/cart" => api_cart(cart_store, req, auth),
-        "/api/cart/items" => api_cart_items(store, shop_store, cart_store, req, None, auth),
-        "/api/cart/items/bulk" => api_cart_items_bulk(store, shop_store, cart_store, req, auth),
+        "/api/cart/items" => api_cart_items(store, collections_api, cart_store, req, None, auth),
+        "/api/cart/items/bulk" => api_cart_items_bulk(store, collections_api, cart_store, req, auth),
 
         // Gift card API (Phase 3). Public lookup + redeem; admin issuance/listing gated.
         "/api/cart/gift-card/lookup" => api_giftcard_lookup(giftcard_store, cart_store, req),
@@ -357,7 +357,7 @@ fn dispatch(
         }
         p if p.starts_with("/api/cart/items/") => api_cart_items(
             store,
-            shop_store,
+            collections_api,
             cart_store,
             req,
             Some(slug_of(p, "/api/cart/items/")),
@@ -1156,7 +1156,7 @@ fn api_cart(store: &CartStore, req: &Request, auth: &auth::State) -> Response {
 
 fn api_cart_items(
     booking_store: &BookingStore,
-    shop_store: &ShopStore,
+    collections_api: &CollectionsApi,
     cart_store: &CartStore,
     req: &Request,
     path_id: Option<&str>,
@@ -1179,7 +1179,7 @@ fn api_cart_items(
                 Ok(v) => v,
                 Err(r) => return r,
             };
-            let item = match resolve_cart_item(booking_store, shop_store, &body, now_ms()) {
+            let item = match resolve_cart_item(booking_store, collections_api, &body, now_ms()) {
                 Ok(item) => item,
                 Err((status, e)) => return json(status, &error_value(&e)),
             };
@@ -1229,7 +1229,7 @@ fn api_cart_items(
 
 fn api_cart_items_bulk(
     booking_store: &BookingStore,
-    shop_store: &ShopStore,
+    collections_api: &CollectionsApi,
     cart_store: &CartStore,
     req: &Request,
     auth: &auth::State,
@@ -1261,7 +1261,7 @@ fn api_cart_items_bulk(
             Err(e) => return json(500, &error_value(&e)),
         };
     for raw in items {
-        if let Ok(item) = resolve_cart_item(booking_store, shop_store, raw, now_ms()) {
+        if let Ok(item) = resolve_cart_item(booking_store, collections_api, raw, now_ms()) {
             match cart_store.add_item(&summary.id, item, now_ms()) {
                 Ok(next) => summary = next,
                 Err(_) => continue,
@@ -1273,7 +1273,7 @@ fn api_cart_items_bulk(
 
 fn resolve_cart_item(
     booking_store: &BookingStore,
-    shop_store: &ShopStore,
+    collections_api: &CollectionsApi,
     body: &Value,
     now: i64,
 ) -> Result<cart::ResolvedItem, (u16, String)> {
@@ -1281,15 +1281,24 @@ fn resolve_cart_item(
     match item_type {
         "product" => {
             let ref_id = str_field(body, "refId").ok_or((400, "refId required".to_string()))?;
-            let product = shop_store
-                .product(ref_id)
-                .filter(|p| p.active)
+            let id = ref_id
+                .parse::<i64>()
+                .map_err(|_| (400, "invalid product id".to_string()))?;
+            let product = collections_api
+                .record_by_id("products", id)
+                .filter(|p| p.get("active").and_then(Value::as_bool) != Some(false))
                 .ok_or((404, "product not found".to_string()))?;
+            let name = product
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("Vara")
+                .to_string();
+            let price = product.get("price").and_then(Value::as_i64).unwrap_or(0);
             Ok(cart::ResolvedItem {
                 item_type: "product".into(),
-                ref_id: product.id,
-                name_snapshot: product.name,
-                unit_price: product.price,
+                ref_id: id.to_string(),
+                name_snapshot: name,
+                unit_price: price,
                 quantity: int_field(body, "quantity").unwrap_or(1).max(1),
                 metadata: Value::Object(vec![]),
             })
