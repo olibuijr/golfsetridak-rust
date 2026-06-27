@@ -499,3 +499,49 @@ name = "cart_items"
   [[collection.field]]
   name = "created_at"
   type = "int"
+
+# ---- Business users (the app `users` table) ------------------------------
+# The customer/staff records the booking + admin flows key off. Source PK is a
+# text UUID; collections use an auto integer id, so the migration keys records
+# by email/phone (both UNIQUE in source — enforced in Phase 3 SQL). `role` is a
+# plain text enum here ('customer' | 'admin'); `fixed_price` overrides slot
+# pricing per user; `payday_customer_id`/`kennitala` feed invoicing.
+[[collection]]
+name = "users"
+
+  [[collection.field]]
+  name = "name"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "email"         # UNIQUE in source
+  type = "text"
+
+  [[collection.field]]
+  name = "phone"         # UNIQUE in source
+  type = "text"
+
+  [[collection.field]]
+  name = "role"          # 'customer' (default) | 'admin'
+  type = "text"
+
+  [[collection.field]]
+  name = "fixed_price"   # ISK per-slot override, integer
+  type = "int"
+
+  [[collection.field]]
+  name = "kennitala"
+  type = "text"
+
+  [[collection.field]]
+  name = "payday_customer_id"
+  type = "text"
+
+  [[collection.field]]
+  name = "created_at"
+  type = "int"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
