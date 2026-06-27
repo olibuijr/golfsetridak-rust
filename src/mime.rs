@@ -20,6 +20,7 @@ pub fn for_path(path: &str) -> &'static str {
         "woff2" => "font/woff2",
         "woff" => "font/woff",
         "txt" => "text/plain; charset=utf-8",
+        "xml" => "application/xml; charset=utf-8",
         _ => "application/octet-stream",
     }
 }

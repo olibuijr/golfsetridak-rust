@@ -201,12 +201,6 @@ impl Store {
         v.get("fixed_price").and_then(Value::as_i64)
     }
 
-    /// The effective price for `hour`, honoring a user `fixed_price` override.
-    pub fn slot_price(&self, hour: i64, user_id: Option<&str>) -> i64 {
-        let fixed = user_id.and_then(|u| self.user_fixed_price(u));
-        effective_slot_price(hour, &self.active_pricing_rules(), fixed)
-    }
-
     /// Build availability for `days` days starting at the calendar day of
     /// `start_ms`. Mirrors `/api/availability`: each slot is `past`, `booked`,
     /// or `available`, priced with the user's effective price.
@@ -296,6 +290,9 @@ impl Store {
     /// `payment_type` is `single` | `package` | `subscription`. For `package`
     /// and `subscription`, `ref_id` names the user-package / user-subscription.
     /// Returns the new booking id, or a user-facing error string.
+    /// Create a booking using the store's local pricing tree for single
+    /// payments. Thin wrapper over [`create_booking_priced`] with no
+    /// caller-resolved price — used by tests and any internal path.
     pub fn create_booking(
         &self,
         user_id: &str,
@@ -303,6 +300,24 @@ impl Store {
         payment_type: &str,
         ref_id: Option<&str>,
         notes: Option<&str>,
+        now_ms: i64,
+    ) -> Result<String, String> {
+        self.create_booking_priced(user_id, slot_ms, payment_type, ref_id, notes, None, now_ms)
+    }
+
+    /// Create a booking, charging `resolved_price` for single payments (the
+    /// price the caller computed from the collections pricing rules, so the
+    /// charge matches `/api/slot-price`). `None` falls back to the store's local
+    /// pricing tree.
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_booking_priced(
+        &self,
+        user_id: &str,
+        slot_ms: i64,
+        payment_type: &str,
+        ref_id: Option<&str>,
+        notes: Option<&str>,
+        resolved_price: Option<i64>,
         now_ms: i64,
     ) -> Result<String, String> {
         let mut t = self.lock();
@@ -365,9 +380,11 @@ impl Store {
                 user_subscription_id = Some(ref_id.to_string());
             }
             "single" => {
-                let fixed = user_fixed_price_locked(&mut t.users, user_id);
-                let rules = active_pricing_rules_locked(&mut t.pricing_rules);
-                price_paid = Some(effective_slot_price(hour_of(slot_ms), &rules, fixed));
+                price_paid = Some(resolved_price.unwrap_or_else(|| {
+                    let fixed = user_fixed_price_locked(&mut t.users, user_id);
+                    let rules = active_pricing_rules_locked(&mut t.pricing_rules);
+                    effective_slot_price(hour_of(slot_ms), &rules, fixed)
+                }));
             }
             other => return Err(format!("Unknown payment type: {other}")),
         }
@@ -1125,8 +1142,8 @@ mod tests {
         let rules = store.active_pricing_rules();
         assert_eq!(rules.len(), 3);
         // Daytime (10:00) priced at 3500, off-hours (03:00) at 2000.
-        assert_eq!(store.slot_price(10, None), 3500);
-        assert_eq!(store.slot_price(3, None), 2000);
+        assert_eq!(effective_slot_price(10, &rules, None), 3500);
+        assert_eq!(effective_slot_price(3, &rules, None), 2000);
         cleanup(&dir);
     }
 

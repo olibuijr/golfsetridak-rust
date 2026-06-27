@@ -646,7 +646,8 @@ fn api_book(
         booking::pricing::effective_slot_price(booking::time::hour_of(slot_ms), &rules, fixed)
     });
 
-    match store.create_booking(&user_id, slot_ms, payment_type, ref_id, notes, single_price, now) {
+    match store.create_booking_priced(&user_id, slot_ms, payment_type, ref_id, notes, single_price, now)
+    {
         Ok(id) => json(
             200,
             &Value::Object(vec![(
@@ -1873,17 +1874,6 @@ fn cart_json(status: u16, summary: &cart::CartSummary, set_cookie: bool) -> Resp
     }
 }
 
-// Admin product CRUD (`api_admin_products`) lists from the hand-rolled
-// `ShopStore` it also writes to — distinct from the collections-backed read
-// used by the public shop page / `/api/shop/products`.
-fn product_values(store: &ShopStore, active_only: bool) -> Vec<Value> {
-    store
-        .list_products(active_only)
-        .iter()
-        .map(|p| shop::product_value(p, store.category_name(p.category_id.as_deref())))
-        .collect()
-}
-
 fn body_json(req: &Request) -> Result<Value, Response> {
     akurai_json::parse(&req.body_str()).map_err(|_| json(400, &error_value("invalid JSON body")))
 }
@@ -2101,9 +2091,8 @@ fn collection_category_names(api: &CollectionsApi) -> std::collections::HashMap<
         .collect()
 }
 
-/// Adapt a `products` record into the template shape (mirrors
-/// [`shop::product_value`]). `category` is a relation id resolved to a name via
-/// `cat_names`.
+/// Adapt a `products` collection record into the template shape. `category` is
+/// a relation id resolved to a name via `cat_names`.
 fn product_value_from_record(
     p: &Value,
     cat_names: &std::collections::HashMap<i64, String>,
@@ -2169,8 +2158,7 @@ fn collection_product_values(api: &CollectionsApi, active_only: bool) -> Vec<Val
         .collect()
 }
 
-/// Adapt a `product_categories` record into the template shape (mirrors
-/// [`shop::category_value`]).
+/// Adapt a `product_categories` collection record into the template shape.
 fn category_value_from_record(c: &Value) -> Value {
     let s = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or("").to_string();
     let active = c.get("active").and_then(Value::as_bool).unwrap_or(true);
@@ -2340,37 +2328,65 @@ fn admin_categories_page(
 
 fn admin_product_form_page(
     root: &Path,
-    store: &ShopStore,
+    api: &CollectionsApi,
     id: Option<&str>,
     auth: &auth::State,
     req: &Request,
 ) -> Response {
     let product = match id {
-        Some(id) => match store.product(id) {
+        Some(id) => match id.parse::<i64>().ok().and_then(|n| api.record_by_id("products", n)) {
             Some(product) => Some(product),
             None => return not_found_page(root, auth, req),
         },
         None => None,
     };
-    let selected = product.as_ref().and_then(|p| p.category_id.as_deref());
-    let categories = store
-        .list_categories(false)
+    let selected = product
+        .as_ref()
+        .and_then(|p| p.get("category").and_then(Value::as_i64));
+    let mut cat_records = api.records("product_categories");
+    sort_catalog(&mut cat_records);
+    let categories = cat_records
         .iter()
         .map(|c| {
-            let mut value = match shop::category_value(c) {
-                Value::Object(pairs) => pairs,
-                _ => vec![],
-            };
-            value.push((
-                "selected".into(),
-                Value::Bool(selected == Some(c.id.as_str())),
-            ));
-            Value::Object(value)
+            let cid = c.get("id").and_then(Value::as_i64).unwrap_or(0);
+            let s = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            Value::Object(vec![
+                ("id".into(), Value::Int(cid)),
+                ("name".into(), Value::Str(s("name"))),
+                ("slug".into(), Value::Str(s("slug"))),
+                ("selected".into(), Value::Bool(selected == Some(cid))),
+            ])
         })
         .collect();
     let product_value = product
         .as_ref()
-        .map(|p| shop::product_value(p, store.category_name(p.category_id.as_deref())))
+        .map(|p| {
+            let s = |k: &str| p.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+            Value::Object(vec![
+                (
+                    "id".into(),
+                    Value::Int(p.get("id").and_then(Value::as_i64).unwrap_or(0)),
+                ),
+                ("name".into(), Value::Str(s("name"))),
+                ("description".into(), Value::Str(s("description"))),
+                (
+                    "price".into(),
+                    Value::Int(p.get("price").and_then(Value::as_i64).unwrap_or(0)),
+                ),
+                ("imageUrl".into(), Value::Str(s("image_url"))),
+                (
+                    "categoryId".into(),
+                    p.get("category")
+                        .and_then(Value::as_i64)
+                        .map(Value::Int)
+                        .unwrap_or(Value::Str(String::new())),
+                ),
+                (
+                    "active".into(),
+                    Value::Bool(p.get("active").and_then(Value::as_bool).unwrap_or(true)),
+                ),
+            ])
+        })
         .unwrap_or_else(|| {
             Value::Object(vec![
                 ("id".into(), Value::Str(String::new())),
