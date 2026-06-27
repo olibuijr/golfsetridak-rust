@@ -271,6 +271,7 @@ fn dispatch(
     match path {
         "/utilities.css" => utilities(root),
         "/api/health" => json(200, &health()),
+        "/api/version" => api_version(req),
         "/api/me" => api_me(auth, req),
         "/api/user-packages" => api_user_packages(store, auth, req),
 
@@ -2997,6 +2998,34 @@ fn api_user_packages(store: &BookingStore, auth: &auth::State, req: &Request) ->
         200,
         &Value::Object(vec![("packages".into(), Value::Array(pkg_values))]),
     )
+}
+
+/// `GET /api/version` — build/version metadata. Mirrors the source
+/// `src/app/api/version/route.ts`: `{ version, sha, built_at }`. `version` is the
+/// compiled `CARGO_PKG_VERSION`; `sha`/`built_at` come from the environment
+/// (set at deploy) and fall back to `"dev"` exactly as the source does.
+fn api_version(req: &Request) -> Response {
+    if req.method != Method::Get {
+        return json(405, &error_value("method not allowed"));
+    }
+    let env_or_dev = |keys: &[&str]| -> String {
+        for k in keys {
+            if let Ok(v) = std::env::var(k) {
+                if !v.is_empty() {
+                    return v;
+                }
+            }
+        }
+        "dev".to_string()
+    };
+    let sha = env_or_dev(&["APP_SHA", "NEXT_PUBLIC_APP_SHA"]);
+    let built_at = env_or_dev(&["APP_BUILT_AT", "NEXT_PUBLIC_APP_BUILT_AT"]);
+    let body = Value::Object(vec![
+        ("version".into(), Value::Str(VERSION.into())),
+        ("sha".into(), Value::Str(sha)),
+        ("built_at".into(), Value::Str(built_at)),
+    ]);
+    json(200, &body).with_header("Cache-Control", "no-store")
 }
 
 fn health() -> Value {
