@@ -240,6 +240,7 @@ fn dispatch_reply(
     match path {
         "/login" => auth::login(auth, root, req, store),
         "/logout" => auth::logout(auth, req),
+        "/api/auth/dev-login" => auth::dev_login(auth, req, store),
         _ => Reply::Response(dispatch(
             root,
             store,

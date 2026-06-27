@@ -300,6 +300,52 @@ pub fn logout(state: &State, req: &Request) -> Reply {
     Reply::Response(redirect("/login").with_header("Set-Cookie", &expired_cookie()))
 }
 
+/// `POST /api/auth/dev-login` — development-only OTP bypass (mirrors the source
+/// `auth/dev-login`). Gated behind the `GOLF_DEV_LOGIN` env var: when unset
+/// (production) it 404s as if the route did not exist, so it can never weaken
+/// prod auth. Body `{ email }` → ensures the account, mints a session, sets the
+/// cookie.
+pub fn dev_login(state: &State, req: &Request, booking_store: &crate::booking::Store) -> Reply {
+    let enabled = std::env::var("GOLF_DEV_LOGIN")
+        .map(|v| !v.is_empty())
+        .unwrap_or(false);
+    let json = |status: u16, body: &str| {
+        Reply::Response(
+            Response::new(status)
+                .with_body("application/json; charset=utf-8", body.as_bytes().to_vec()),
+        )
+    };
+    if !enabled {
+        return json(404, "{\"error\":\"not found\"}");
+    }
+    if req.method != Method::Post {
+        return json(405, "{\"error\":\"method not allowed\"}");
+    }
+    let body = akurai_json::parse(&req.body_str()).unwrap_or(Value::Object(vec![]));
+    let email_raw = body
+        .get("email")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if email_raw.is_empty() {
+        return json(400, "{\"error\":\"email required\"}");
+    }
+    let email = normalize_email(&email_raw);
+    if let Err(e) = state.ensure_account(&email) {
+        return Reply::Response(server_err_raw(&format!("could not create account: {e}")));
+    }
+    let _ = booking_store.put_user(&email, None);
+    match state.create_session(&email) {
+        Ok(id) => Reply::Response(
+            Response::new(200)
+                .with_body("application/json; charset=utf-8", b"{\"ok\":true}".to_vec())
+                .with_header("Set-Cookie", &set_cookie(&id)),
+        ),
+        Err(e) => Reply::Response(server_err_raw(&format!("could not start session: {e}"))),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Template rendering
 // ---------------------------------------------------------------------------
