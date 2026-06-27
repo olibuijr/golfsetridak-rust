@@ -540,7 +540,15 @@ h3 { font-size: 1.25rem; }
   align-items: start;
 }
 
+.shop-sidebar {
+  position: sticky;
+  top: 92px;
+  display: grid;
+  gap: 14px;
+}
+
 .shop-filter,
+.mini-cart,
 .cart-summary,
 .admin-form-card,
 .admin-table-wrap,
@@ -553,10 +561,47 @@ h3 { font-size: 1.25rem; }
 }
 
 .shop-filter {
-  position: sticky;
-  top: 92px;
   display: grid;
   gap: 10px;
+}
+
+.shop-cart-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cart-count {
+  display: inline-grid;
+  min-width: 1.7rem;
+  height: 1.7rem;
+  place-items: center;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.16);
+  color: #fff;
+  font-family: var(--font-heading);
+  font-size: 0.95rem;
+  line-height: 1;
+}
+
+.mini-cart {
+  display: grid;
+  gap: 14px;
+}
+
+.mini-cart h2,
+.mini-cart p {
+  margin: 0;
+}
+
+.mini-cart p {
+  color: var(--muted);
+}
+
+.mini-cart strong {
+  font-family: var(--font-heading);
+  font-size: 1.55rem;
+  color: var(--accent);
 }
 
 .filter-chip {
@@ -761,7 +806,7 @@ h3 { font-size: 1.25rem; }
   .cart-shell {
     grid-template-columns: 1fr;
   }
-  .shop-filter { position: static; }
+  .shop-sidebar { position: static; }
   .inline-form,
   .form-grid {
     grid-template-columns: 1fr;

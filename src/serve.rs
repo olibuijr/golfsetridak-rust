@@ -409,9 +409,9 @@ fn dispatch(
         "/personuvernd" => legal(root, "personuvernd", auth, req),
         "/skilmalar" => legal(root, "skilmalar", auth, req),
         "/um-okkur" => about(root, auth, req),
-        "/verslun" => shop_page(root, collections_api, auth, req),
+        "/verslun" => shop_page(root, collections_api, cart_store, auth, req),
         "/my" => my_page(root, store, auth, req),
-        "/my/verslun" => shop_page(root, collections_api, auth, req),
+        "/my/verslun" => shop_page(root, collections_api, cart_store, auth, req),
         "/my/verslun/karfa" => cart_page(root, cart_store, req, auth),
         "/admin/vorur" => {
             if !auth.require_role(req, auth::Role::Admin) {
@@ -2149,6 +2149,9 @@ fn product_value_from_record(
     let category_id = p.get("category").and_then(Value::as_i64);
     let category_name = category_id.and_then(|id| cat_names.get(&id)).cloned();
     let image_url = p.get("image_url").and_then(Value::as_str);
+    let display_image_url = image_url
+        .and_then(non_empty)
+        .or_else(|| fallback_product_image_url(p, category_name.as_deref()));
     Value::Object(vec![
         (
             "id".into(),
@@ -2170,6 +2173,7 @@ fn product_value_from_record(
         ("price".into(), Value::Int(price)),
         ("priceLabel".into(), Value::Str(format_isk(price))),
         ("imageUrl".into(), opt_str_value(image_url)),
+        ("displayImageUrl".into(), opt_str_value(display_image_url)),
         (
             "categoryId".into(),
             category_id.map(Value::Int).unwrap_or(Value::Null),
@@ -2186,11 +2190,32 @@ fn product_value_from_record(
             "position".into(),
             Value::Int(p.get("position").and_then(Value::as_i64).unwrap_or(0)),
         ),
+        ("hasImage".into(), Value::Bool(display_image_url.is_some())),
         (
-            "hasImage".into(),
-            Value::Bool(image_url.map(|s| !s.trim().is_empty()).unwrap_or(false)),
+            "hasCustomImage".into(),
+            Value::Bool(image_url.and_then(non_empty).is_some()),
         ),
     ])
+}
+
+fn non_empty(value: &str) -> Option<&str> {
+    let value = value.trim();
+    (!value.is_empty()).then_some(value)
+}
+
+fn fallback_product_image_url<'a>(p: &Value, category_name: Option<&str>) -> Option<&'a str> {
+    let name = p
+        .get("name")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_lowercase();
+    if name.contains("golfhanski") || category_name == Some("Golfvara") {
+        Some("/assets/products/golf-glove.webp")
+    } else if category_name == Some("Drykkur") {
+        Some("/assets/products/drinks-snacks.webp")
+    } else {
+        None
+    }
 }
 
 /// All products from the collections store, sorted, optionally active-only, as
@@ -2271,8 +2296,31 @@ fn collection_user_fixed_price(api: &CollectionsApi, user_id: &str) -> Option<i6
 
 // ---- shop + cart pages ----------------------------------------------------
 
-fn shop_page(root: &Path, api: &CollectionsApi, auth: &auth::State, req: &Request) -> Response {
-    render(
+fn shop_page(
+    root: &Path,
+    api: &CollectionsApi,
+    cart_store: &CartStore,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
+    let user = auth.current_user(req);
+    let effective_id = user
+        .as_ref()
+        .map(|u| user_cart_id(&u.email))
+        .or_else(|| cart::cookie_cart_id(req));
+    let (cart_value, cart_id, item_count, subtotal_label, created) =
+        match cart_store.get_or_create_open(effective_id.as_deref(), now_ms()) {
+            Ok((summary, created)) => (
+                cart::cart_value(&summary),
+                Some(summary.id),
+                summary.item_count,
+                shop::format_isk(summary.subtotal),
+                created,
+            ),
+            Err(_) => (Value::Object(vec![]), None, 0, shop::format_isk(0), false),
+        };
+
+    let mut resp = render(
         root,
         "shop",
         vec![
@@ -2288,10 +2336,24 @@ fn shop_page(root: &Path, api: &CollectionsApi, auth: &auth::State, req: &Reques
                 "categories".into(),
                 Value::Array(collection_category_values(api)),
             ),
+            ("cart".into(), cart_value),
+            ("cart_item_count".into(), Value::Int(item_count)),
+            (
+                "cart_item_count_label".into(),
+                Value::Str(item_count.to_string()),
+            ),
+            ("cart_has_items".into(), Value::Bool(item_count > 0)),
+            ("cart_subtotal_label".into(), Value::Str(subtotal_label)),
         ],
         auth,
         req,
-    )
+    );
+    if created && user.is_none() {
+        if let Some(cart_id) = cart_id {
+            resp = resp.with_header("Set-Cookie", &cart::cookie_header(&cart_id));
+        }
+    }
+    resp
 }
 
 fn cart_page(root: &Path, store: &CartStore, req: &Request, auth: &auth::State) -> Response {

@@ -5,16 +5,28 @@
         <h1>Verslun</h1>
         <p class="lede">Klippikort, gjafir og vörur frá Golfsetrinu á einum stað.</p>
       </div>
-      <a class="btn btn-primary" href="/my/verslun/karfa">Opna körfu</a>
+      <a class="btn btn-primary shop-cart-link" href="/my/verslun/karfa">
+        Karfa <span class="cart-count" data-cart-count>{{ cart_item_count_label }}</span>
+      </a>
     </section>
 
     <section class="shop-layout">
-      <aside class="shop-filter">
-        <h2>Flokkar</h2>
-        <a class="filter-chip" href="/verslun">Allar vörur</a>
-        {% for category in categories %}
-        <a class="filter-chip" href="#category-{{ category.id }}">{{ category.name }}</a>
-        {% endfor %}
+      <aside class="shop-sidebar">
+        <div class="shop-filter">
+          <h2>Flokkar</h2>
+          <a class="filter-chip" href="/verslun">Allar vörur</a>
+          {% for category in categories %}
+          <a class="filter-chip" href="#category-{{ category.id }}">{{ category.name }}</a>
+          {% endfor %}
+        </div>
+        <div class="mini-cart" aria-live="polite">
+          <div>
+            <h2>Karfan</h2>
+            <p><span data-cart-count>{{ cart_item_count_label }}</span> vörur</p>
+          </div>
+          <strong data-cart-subtotal>{{ cart_subtotal_label }}</strong>
+          <a class="btn btn-secondary" href="/my/verslun/karfa">Opna körfu</a>
+        </div>
       </aside>
 
       <div class="product-grid">
@@ -23,7 +35,7 @@
         <article class="product-card" id="product-{{ product.id }}">
           <div class="product-media">
             {% if product.hasImage %}
-            <img src="{{ product.imageUrl }}" alt="" loading="lazy" />
+            <img src="{{ product.displayImageUrl }}" alt="{{ product.name }}" loading="lazy" />
             {% endif %}
             {% if product.hasImage %}{% else %}<span class="product-placeholder" aria-hidden="true">Vara</span>{% endif %}
           </div>
@@ -62,12 +74,26 @@
             const data = await res.json().catch(() => ({}));
             throw new Error(data.error || "Tókst ekki að bæta í körfu");
           }
+          const data = await res.json();
+          if (data && data.cart) updateCartSummary(data.cart);
           button.textContent = "Komið í körfu";
           setTimeout(() => { button.textContent = original; button.disabled = false; }, 1200);
         } catch (err) {
           button.textContent = err.message || "Villa";
           setTimeout(() => { button.textContent = original; button.disabled = false; }, 1800);
         }
+      }
+      function updateCartSummary(cart) {
+        const count = Number(cart.itemCount || 0);
+        document.querySelectorAll("[data-cart-count]").forEach((el) => {
+          el.textContent = String(count);
+        });
+        document.querySelectorAll("[data-cart-subtotal]").forEach((el) => {
+          el.textContent = formatISK(Number(cart.subtotal || 0));
+        });
+      }
+      function formatISK(amount) {
+        return new Intl.NumberFormat("is-IS").format(amount) + " kr";
       }
     </script>
 {% include "footer" %}
