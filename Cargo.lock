@@ -68,7 +68,7 @@ dependencies = [
 
 [[package]]
 name = "golfsetridak"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "akurai-blobs",
  "akurai-collections",

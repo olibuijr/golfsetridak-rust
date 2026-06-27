@@ -1,0 +1,57 @@
+{% include "header" %}
+    <section class="page-hero">
+      <div class="page-hero-inner">
+        <p class="eyebrow">Bóka tíma</p>
+        <h1>Staðfestu <span class="accent">bókun</span></h1>
+        <p class="lede">{{ slot_date }} kl. {{ slot_time }} — {{ price_label }}</p>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="cta-card" style="max-width:34rem">
+        <p class="section-tag">Rástími</p>
+        <h2>{{ slot_date }} · {{ slot_time }}</h2>
+        <p>Verð: <strong style="color:var(--accent)">{{ price_label }}</strong></p>
+        {% if logged_in %}
+        <div class="btn-row">
+          <button class="btn btn-primary" type="button" id="book-btn" onclick="bookSlot()">Bóka og greiða</button>
+          <a class="btn btn-ghost" href="/">Til baka í dagatal</a>
+        </div>
+        <p id="book-status" class="muted" role="status" style="margin-top:14px"></p>
+        {% else %}
+        <p class="muted">Skráðu þig inn til að staðfesta bókun.</p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="/login">Innskrá</a>
+          <a class="btn btn-ghost" href="/">Til baka í dagatal</a>
+        </div>
+        {% endif %}
+      </div>
+    </section>
+
+    <script>
+      async function bookSlot() {
+        var btn = document.getElementById("book-btn");
+        var status = document.getElementById("book-status");
+        btn.disabled = true;
+        status.textContent = "Bóka...";
+        try {
+          var res = await fetch("/api/book", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ slotTime: {{ slot_ms }}, paymentType: "single" })
+          });
+          var data = await res.json();
+          if (res.ok) {
+            status.textContent = "Bókun staðfest! Þú færð aðgangskóðann sendan.";
+            btn.textContent = "Bókað";
+          } else {
+            status.textContent = data.error || "Tókst ekki að bóka.";
+            btn.disabled = false;
+          }
+        } catch (err) {
+          status.textContent = "Villa kom upp við bókun.";
+          btn.disabled = false;
+        }
+      }
+    </script>
+{% include "footer" %}

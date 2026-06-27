@@ -6,6 +6,8 @@ Format: [Keep a Changelog](https://keepachangelog.com/); SemVer.
 
 ## [Unreleased]
 
+## [0.0.15] - 2026-06-27
+
 ## [0.0.14] - 2026-06-27
 
 ## [0.0.13] - 2026-06-27
