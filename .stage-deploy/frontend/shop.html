@@ -86,7 +86,10 @@
         });
       }
       function formatISK(amount) {
-        return new Intl.NumberFormat("is-IS").format(amount) + " kr";
+        const value = Number(amount || 0);
+        const sign = value < 0 ? "-" : "";
+        const digits = String(Math.abs(Math.trunc(value)));
+        return sign + digits.replace(/\B(?=(\d{3})+(?!\d))/g, ".") + " kr";
       }
     </script>
 {% include "footer" %}
