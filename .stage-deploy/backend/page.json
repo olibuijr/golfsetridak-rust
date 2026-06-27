@@ -8,8 +8,7 @@
     { "label": "Forsíða", "href": "/" },
     { "label": "Fréttir", "href": "/frettir" },
     { "label": "Verslun", "href": "/verslun" },
-    { "label": "Gjafabréf", "href": "/gjafabref" },
-    { "label": "Notendahandbók", "href": "/notendahandbok" }
+    { "label": "Gjafabréf", "href": "/gjafabref" }
   ],
   "company": {
     "legal_name": "Golfsetrið ehf.",
@@ -26,7 +25,6 @@
   "footer_links": [
     { "label": "Um Golfsetrið", "href": "/um-okkur" },
     { "label": "Fréttir", "href": "/frettir" },
-    { "label": "Notendahandbók", "href": "/notendahandbok" },
     { "label": "Gjafabréf", "href": "/gjafabref" },
     { "label": "Viðskiptaskilmálar", "href": "/skilmalar" },
     { "label": "Persónuverndarstefna", "href": "/personuvernd" }
