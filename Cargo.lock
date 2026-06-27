@@ -42,7 +42,7 @@ dependencies = [
 
 [[package]]
 name = "golfsetridak"
-version = "0.0.9"
+version = "0.0.10"
 dependencies = [
  "akurai-css",
  "akurai-http",

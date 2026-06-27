@@ -52,6 +52,7 @@ body {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
 }
 
 a {
@@ -947,7 +948,12 @@ h3 { font-size: 1.25rem; }
 .home-hero {
   position: relative;
   overflow: hidden;
-  margin: -40px -24px 10px;
+  /* Full-bleed out of the max-width .container to span the whole viewport. */
+  margin-top: -40px;
+  margin-bottom: 10px;
+  margin-inline: calc(50% - 50vw);
+  width: 100vw;
+  max-width: 100vw;
   padding: 76px 24px 60px;
   text-align: center;
   border-bottom: 1px solid var(--border);
