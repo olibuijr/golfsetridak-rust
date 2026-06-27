@@ -13,13 +13,13 @@
           <div>
             <p class="cart-line-type">{{ item.type }}</p>
             <h2>{{ item.nameSnapshot }}</h2>
-            <p>{{ item.unitPriceLabel }} × {{ item.quantity }}</p>
+            <p data-cart-page-line-summary>{{ item.unitPriceLabel }} × {{ item.quantity }}</p>
           </div>
           <div class="cart-line-actions">
-            <strong>{{ item.lineTotalLabel }}</strong>
+            <strong data-cart-page-line-total>{{ item.lineTotalLabel }}</strong>
             <label>
               Magn
-              <input type="number" min="0" value="{{ item.quantity }}" onchange="setCartQuantity('{{ item.id }}', this.value)" />
+              <input data-cart-page-quantity type="number" min="0" value="{{ item.quantity }}" onchange="setCartQuantity('{{ item.id }}', this.value)" />
             </label>
             <button class="btn btn-secondary" type="button" onclick="removeCartItem('{{ item.id }}')">Eyða</button>
           </div>
@@ -29,7 +29,7 @@
 
       <aside class="cart-summary">
         <h2>Samtals</h2>
-        <p class="cart-total">{{ subtotal_label }}</p>
+        <p class="cart-total" data-cart-page-subtotal>{{ subtotal_label }}</p>
         <p class="muted">Verð með VSK. Greitt með korti eða millifærslu.</p>
         <div class="btn-row">
           <a class="btn btn-primary" href="/checkout">Greiða</a>
@@ -47,16 +47,34 @@
 
     <script>
       async function setCartQuantity(id, quantity) {
-        await fetch("/api/cart/items/" + encodeURIComponent(id), {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ quantity: Number(quantity) })
-        });
-        location.reload();
+        if (window.GolfCart && window.GolfCart.setQuantity) {
+          await window.GolfCart.setQuantity(id, Number(quantity));
+        }
       }
       async function removeCartItem(id) {
-        await fetch("/api/cart/items/" + encodeURIComponent(id), { method: "DELETE" });
-        location.reload();
+        if (window.GolfCart && window.GolfCart.removeItem) {
+          await window.GolfCart.removeItem(id);
+        }
       }
+      document.addEventListener("golfcart:updated", function (event) {
+        var cart = event.detail && event.detail.cart ? event.detail.cart : { items: [], subtotal: 0 };
+        var items = Array.isArray(cart.items) ? cart.items : [];
+        document.querySelectorAll("[data-item-id]").forEach(function (line) {
+          var id = line.getAttribute("data-item-id");
+          var item = items.find(function (candidate) { return candidate.id === id; });
+          if (!item) {
+            line.remove();
+            return;
+          }
+          var summary = line.querySelector("[data-cart-page-line-summary]");
+          var total = line.querySelector("[data-cart-page-line-total]");
+          var input = line.querySelector("[data-cart-page-quantity]");
+          if (summary) summary.textContent = (item.unitPriceLabel || "") + " × " + item.quantity;
+          if (total) total.textContent = item.lineTotalLabel || "";
+          if (input) input.value = item.quantity;
+        });
+        var subtotal = document.querySelector("[data-cart-page-subtotal]");
+        if (subtotal) subtotal.textContent = new Intl.NumberFormat("is-IS").format(Number(cart.subtotal || 0)) + " kr";
+      });
     </script>
 {% include "footer" %}

@@ -55,6 +55,217 @@
           if (e.target.closest('a')) close();
         });
       })();
+      (function () {
+        var drawer = document.getElementById('cart-drawer');
+        if (!drawer) return;
+        var overlay = document.querySelector('.cart-overlay');
+        var openers = document.querySelectorAll('[data-cart-open]');
+        var closeButtons = document.querySelectorAll('[data-cart-close]');
+        var itemsEl = document.querySelector('[data-cart-items]');
+        var emptyEl = document.querySelector('[data-cart-empty]');
+        var statusEl = document.querySelector('[data-cart-status]');
+        var checkoutLinks = document.querySelectorAll('[data-cart-checkout]');
+        var currentCart = null;
+        var loading = false;
+
+        function formatISK(amount) {
+          return new Intl.NumberFormat('is-IS').format(Number(amount || 0)) + ' kr';
+        }
+
+        function setStatus(message) {
+          if (statusEl) statusEl.textContent = message || '';
+        }
+
+        function typeLabel(type) {
+          if (type === 'product') return 'Vara';
+          if (type === 'package') return 'Klippikort';
+          if (type === 'slot') return 'Tími';
+          if (type === 'subscription') return 'Áskrift';
+          if (type === 'gift_card') return 'Gjafabréf';
+          return 'Karfaliður';
+        }
+
+        function applyCart(cart) {
+          currentCart = cart || { items: [], itemCount: 0, subtotal: 0 };
+          var count = Number(currentCart.itemCount || 0);
+          var subtotal = Number(currentCart.subtotal || 0);
+          document.querySelectorAll('[data-cart-count]').forEach(function (el) {
+            el.textContent = String(count);
+          });
+          document.querySelectorAll('[data-cart-subtotal]').forEach(function (el) {
+            el.textContent = formatISK(subtotal);
+          });
+          checkoutLinks.forEach(function (link) {
+            if (count > 0) {
+              link.removeAttribute('aria-disabled');
+              link.removeAttribute('tabindex');
+            } else {
+              link.setAttribute('aria-disabled', 'true');
+              link.setAttribute('tabindex', '-1');
+            }
+          });
+          renderDrawerLines();
+          document.dispatchEvent(new CustomEvent('golfcart:updated', { detail: { cart: currentCart } }));
+        }
+
+        function renderDrawerLines() {
+          if (!itemsEl) return;
+          var items = Array.isArray(currentCart && currentCart.items) ? currentCart.items : [];
+          itemsEl.replaceChildren();
+          if (emptyEl) emptyEl.hidden = items.length > 0;
+          itemsEl.hidden = items.length === 0;
+          items.forEach(function (item) {
+            var quantity = Number(item.quantity || 0);
+            var line = document.createElement('article');
+            line.className = 'cart-drawer-line';
+            line.dataset.itemId = item.id || '';
+
+            var main = document.createElement('div');
+            main.className = 'cart-drawer-line-main';
+            var meta = document.createElement('p');
+            meta.className = 'cart-drawer-line-meta';
+            meta.textContent = typeLabel(item.type);
+            var title = document.createElement('h3');
+            title.textContent = item.nameSnapshot || 'Vara';
+            var price = document.createElement('p');
+            price.textContent = (item.unitPriceLabel || formatISK(item.unitPrice)) + ' x ' + quantity;
+            main.append(meta, title, price);
+
+            var bottom = document.createElement('div');
+            bottom.className = 'cart-drawer-line-bottom';
+            var qty = document.createElement('div');
+            qty.className = 'cart-drawer-qty';
+            var minus = document.createElement('button');
+            minus.type = 'button';
+            minus.textContent = '-';
+            minus.setAttribute('aria-label', 'Fækka ' + (item.nameSnapshot || 'vöru'));
+            minus.addEventListener('click', function () {
+              setQuantity(item.id, Math.max(0, quantity - 1));
+            });
+            var out = document.createElement('output');
+            out.textContent = String(quantity);
+            out.setAttribute('aria-label', 'Magn');
+            var plus = document.createElement('button');
+            plus.type = 'button';
+            plus.textContent = '+';
+            plus.setAttribute('aria-label', 'Fjölga ' + (item.nameSnapshot || 'vöru'));
+            plus.addEventListener('click', function () {
+              setQuantity(item.id, quantity + 1);
+            });
+            qty.append(minus, out, plus);
+
+            var total = document.createElement('strong');
+            total.className = 'cart-drawer-line-total';
+            total.textContent = item.lineTotalLabel || formatISK(item.lineTotal);
+            bottom.append(qty, total);
+
+            var remove = document.createElement('button');
+            remove.className = 'cart-drawer-remove';
+            remove.type = 'button';
+            remove.textContent = 'Fjarlægja';
+            remove.addEventListener('click', function () {
+              removeItem(item.id);
+            });
+
+            line.append(main, bottom, remove);
+            itemsEl.append(line);
+          });
+        }
+
+        async function requestCart(url, options) {
+          var res = await fetch(url, options || {});
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok) throw new Error(data.error || 'Aðgerð tókst ekki');
+          if (data && data.cart) applyCart(data.cart);
+          return data.cart;
+        }
+
+        async function refreshCart() {
+          if (loading) return currentCart;
+          loading = true;
+          try {
+            setStatus('Hleð körfu...');
+            return await requestCart('/api/cart');
+          } catch (err) {
+            setStatus(err.message || 'Tókst ekki að sækja körfu');
+            return currentCart;
+          } finally {
+            loading = false;
+            if (statusEl && statusEl.textContent === 'Hleð körfu...') setStatus('');
+          }
+        }
+
+        async function setQuantity(id, quantity) {
+          if (!id) return null;
+          try {
+            setStatus('Uppfæri körfu...');
+            var cart = await requestCart('/api/cart/items/' + encodeURIComponent(id), {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ quantity: Number(quantity) })
+            });
+            setStatus('');
+            return cart;
+          } catch (err) {
+            setStatus(err.message || 'Tókst ekki að uppfæra körfu');
+            return null;
+          }
+        }
+
+        async function removeItem(id) {
+          if (!id) return null;
+          try {
+            setStatus('Fjarlægi úr körfu...');
+            var cart = await requestCart('/api/cart/items/' + encodeURIComponent(id), { method: 'DELETE' });
+            setStatus('');
+            return cart;
+          } catch (err) {
+            setStatus(err.message || 'Tókst ekki að fjarlægja úr körfu');
+            return null;
+          }
+        }
+
+        function openCart() {
+          document.body.classList.remove('nav-open');
+          document.body.classList.add('cart-open');
+          drawer.setAttribute('aria-hidden', 'false');
+          openers.forEach(function (button) { button.setAttribute('aria-expanded', 'true'); });
+          if (overlay) overlay.hidden = false;
+          if (!currentCart) refreshCart();
+          var close = drawer.querySelector('.cart-drawer-close');
+          if (close) close.focus();
+        }
+
+        function closeCart() {
+          document.body.classList.remove('cart-open');
+          drawer.setAttribute('aria-hidden', 'true');
+          openers.forEach(function (button) { button.setAttribute('aria-expanded', 'false'); });
+          if (overlay) overlay.hidden = true;
+        }
+
+        openers.forEach(function (button) {
+          button.addEventListener('click', function (event) {
+            event.preventDefault();
+            openCart();
+          });
+        });
+        closeButtons.forEach(function (button) {
+          button.addEventListener('click', closeCart);
+        });
+        document.addEventListener('keydown', function (event) {
+          if (event.key === 'Escape') closeCart();
+        });
+
+        window.GolfCart = {
+          applyCart: applyCart,
+          refresh: refreshCart,
+          open: openCart,
+          close: closeCart,
+          setQuantity: setQuantity,
+          removeItem: removeItem
+        };
+        refreshCart();
+      })();
     </script>
   </body>
 </html>
