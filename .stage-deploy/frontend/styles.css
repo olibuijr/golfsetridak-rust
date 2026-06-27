@@ -958,11 +958,41 @@ h3 { font-size: 1.25rem; }
 }
 .home-hero-inner {
   position: relative;
+  z-index: 2;
   max-width: var(--maxw);
   margin-inline: auto;
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+/* Background video (4K-sourced cinematic golf) + legibility scrim. */
+.home-hero-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  z-index: 0;
+  background: #060a07 url(/assets/hero-golf-poster.webp) center/cover no-repeat;
+}
+.home-hero-scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background:
+    radial-gradient(940px 440px at 50% -28%, rgba(5, 150, 105, 0.30), transparent 62%),
+    radial-gradient(720px 400px at 82% 124%, rgba(163, 230, 53, 0.10), transparent 60%),
+    linear-gradient(180deg, rgba(6, 10, 7, 0.62), rgba(10, 15, 12, 0.86));
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-hero-video { display: none; }
+  .home-hero {
+    background-image:
+      linear-gradient(180deg, rgba(6, 10, 7, 0.55), rgba(10, 15, 12, 0.82)),
+      url(/assets/hero-golf-poster.webp);
+    background-size: cover;
+    background-position: center;
+  }
 }
 .home-hero-mark { width: clamp(72px, 16vw, 104px); height: auto; }
 .home-hero-wordmark {
