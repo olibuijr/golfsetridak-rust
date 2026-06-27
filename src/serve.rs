@@ -280,6 +280,25 @@ fn dispatch(
         "/api/slot-price" => api_slot_price(collections_api, req, auth),
         "/api/book" => api_book(store, collections_api, req, auth),
         "/api/bookings" => api_bookings(store, req, auth),
+        "/api/book-batch" => api_book_batch(store, collections_api, req, auth),
+        "/api/users" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_users(collections_api, store, req, None)
+        }
+        p if p.starts_with("/api/users/") => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_users(collections_api, store, req, Some(slug_of(p, "/api/users/")))
+        }
+        p if p.starts_with("/api/admin/pricing/") => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_admin_pricing(collections_api, req, slug_of(p, "/api/admin/pricing/"))
+        }
         "/api/shop/products" => api_shop_products(collections_api, req),
         "/api/shop/categories" => api_shop_categories(collections_api, req),
         "/api/admin/shop/products" => {
@@ -2835,6 +2854,202 @@ fn build_engine(root: &Path) -> Result<Engine, String> {
             .map_err(|e| format!("{stem}.html: {}", e.message))?;
     }
     Ok(engine)
+}
+
+/// `POST /api/book-batch` — create multiple bookings in one request (mirrors
+/// `book-batch/route.ts`). Body `{ slotTimes: string[], paymentType:
+/// "single"|"package", userPackageId?, notes? }`. Each slot is validated and
+/// created independently; the response reports created ids and per-slot errors.
+fn api_book_batch(
+    store: &BookingStore,
+    api: &CollectionsApi,
+    req: &Request,
+    auth: &auth::State,
+) -> Response {
+    if req.method != Method::Post {
+        return json(405, &error_value("method not allowed"));
+    }
+    let body = match akurai_json::parse(&req.body_str()) {
+        Ok(v) => v,
+        Err(_) => return json(400, &error_value("invalid JSON body")),
+    };
+    let Some(user_id) = resolve_user_id(req, Some(&body), auth) else {
+        return json(401, &error_value("Unauthorized"));
+    };
+    let payment_type = body.get("paymentType").and_then(Value::as_str).unwrap_or("");
+    let slots = match body.get("slotTimes") {
+        Some(Value::Array(s)) if !s.is_empty() => s,
+        _ => {
+            return json(
+                400,
+                &error_value("slotTimes array and paymentType are required"),
+            )
+        }
+    };
+    if payment_type != "single" && payment_type != "package" {
+        return json(400, &error_value("paymentType must be single or package"));
+    }
+    let ref_id = body.get("userPackageId").and_then(Value::as_str);
+    let notes = body.get("notes").and_then(Value::as_str);
+    let now = now_ms();
+    let rules = collection_pricing_rules(api);
+    let fixed = collection_user_fixed_price(api, &user_id);
+    let mut created: Vec<Value> = Vec::new();
+    let mut failed: Vec<Value> = Vec::new();
+    let fail = |slot: &Value, msg: String, failed: &mut Vec<Value>| {
+        failed.push(Value::Object(vec![
+            ("slot".into(), slot.clone()),
+            ("error".into(), Value::Str(msg)),
+        ]));
+    };
+    for slot in slots {
+        let slot_ms = match slot {
+            Value::Int(ms) => Some(*ms),
+            Value::Str(s) => booking::time::parse_instant(s),
+            _ => None,
+        };
+        let Some(slot_ms) = slot_ms else {
+            fail(slot, "Invalid slotTime".into(), &mut failed);
+            continue;
+        };
+        if let Err(e) =
+            booking::validation::validate_booking_request(slot_ms, payment_type == "package", now)
+        {
+            fail(slot, e, &mut failed);
+            continue;
+        }
+        let price = (payment_type == "single").then(|| {
+            booking::pricing::effective_slot_price(booking::time::hour_of(slot_ms), &rules, fixed)
+        });
+        match store.create_booking_priced(&user_id, slot_ms, payment_type, ref_id, notes, price, now)
+        {
+            Ok(id) => created.push(Value::Str(id)),
+            Err(e) => fail(slot, e, &mut failed),
+        }
+    }
+    json(
+        200,
+        &Value::Object(vec![
+            ("created".into(), Value::Array(created)),
+            ("failed".into(), Value::Array(failed)),
+        ]),
+    )
+}
+
+/// `PATCH /api/admin/pricing/{id}` — update a pricing rule in the
+/// `pricing_rules` collection (admin-gated at dispatch). camelCase body fields
+/// map to the collection's snake_case columns. Mirrors `admin/pricing/[id]`.
+fn api_admin_pricing(api: &CollectionsApi, req: &Request, id: &str) -> Response {
+    if req.method != Method::Patch {
+        return json(405, &error_value("method not allowed"));
+    }
+    let Ok(id) = id.trim_end_matches('/').parse::<u64>() else {
+        return json(400, &error_value("invalid id"));
+    };
+    let body = match akurai_json::parse(&req.body_str()) {
+        Ok(v) => v,
+        Err(_) => return json(400, &error_value("invalid JSON body")),
+    };
+    let mut patch: Vec<(String, Value)> = Vec::new();
+    for (src, dst) in [
+        ("price", "price"),
+        ("startHour", "start_hour"),
+        ("endHour", "end_hour"),
+        ("active", "active"),
+        ("name", "name"),
+    ] {
+        if let Some(v) = body.get(src) {
+            patch.push((dst.to_string(), v.clone()));
+        }
+    }
+    if patch.is_empty() {
+        return json(400, &error_value("No fields to update"));
+    }
+    match api.update_record("pricing_rules", id, Value::Object(patch)) {
+        Ok(Some(rec)) => json(200, &rec),
+        Ok(None) => json(404, &error_value("Pricing rule not found")),
+        Err((s, e)) => json(s, &error_value(&e)),
+    }
+}
+
+/// `GET /api/users` (list) | `GET /api/users/{id}` (detail + packages + booking
+/// count) | `PATCH /api/users/{id}` (`{role?, fixedPrice?}`). Admin-gated at
+/// dispatch. Users live in the `users` collection; packages/bookings are keyed
+/// by the user's email (the booking `user_id`). Mirrors users + users/[id].
+fn api_users(
+    api: &CollectionsApi,
+    store: &BookingStore,
+    req: &Request,
+    id: Option<&str>,
+) -> Response {
+    let id = id.map(|s| s.trim_end_matches('/'));
+    match (id, &req.method) {
+        (None, Method::Get) => json(200, &Value::Array(api.records("users"))),
+        (Some(id), Method::Get) => {
+            let Ok(nid) = id.parse::<i64>() else {
+                return json(400, &error_value("invalid id"));
+            };
+            let Some(user) = api.record_by_id("users", nid) else {
+                return json(404, &error_value("User not found"));
+            };
+            let email = user
+                .get("email")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let packages: Vec<Value> = store
+                .user_packages_for_user(&email)
+                .iter()
+                .map(|p| {
+                    Value::Object(vec![
+                        ("id".into(), Value::Str(p.id.clone())),
+                        ("remaining".into(), Value::Int(p.remaining)),
+                    ])
+                })
+                .collect();
+            let booking_count = store.bookings_for_user(&email).len() as i64;
+            json(
+                200,
+                &Value::Object(vec![
+                    ("user".into(), user),
+                    ("packages".into(), Value::Array(packages)),
+                    ("bookingCount".into(), Value::Int(booking_count)),
+                ]),
+            )
+        }
+        (Some(id), Method::Patch) => {
+            let Ok(nid) = id.parse::<u64>() else {
+                return json(400, &error_value("invalid id"));
+            };
+            let body = match akurai_json::parse(&req.body_str()) {
+                Ok(v) => v,
+                Err(_) => return json(400, &error_value("invalid JSON body")),
+            };
+            let mut patch: Vec<(String, Value)> = Vec::new();
+            if let Some(role) = body.get("role").and_then(Value::as_str) {
+                if role != "customer" && role != "admin" {
+                    return json(400, &error_value("Invalid role"));
+                }
+                patch.push(("role".into(), Value::Str(role.into())));
+            }
+            if let Some(fp) = body.get("fixedPrice") {
+                match fp {
+                    Value::Null => patch.push(("fixed_price".into(), Value::Null)),
+                    Value::Int(n) if *n >= 0 => patch.push(("fixed_price".into(), Value::Int(*n))),
+                    _ => return json(400, &error_value("Invalid fixedPrice")),
+                }
+            }
+            if patch.is_empty() {
+                return json(400, &error_value("No fields to update"));
+            }
+            match api.update_record("users", nid, Value::Object(patch)) {
+                Ok(Some(rec)) => json(200, &rec),
+                Ok(None) => json(404, &error_value("User not found")),
+                Err((s, e)) => json(s, &error_value(&e)),
+            }
+        }
+        _ => json(405, &error_value("method not allowed")),
+    }
 }
 
 /// Load the shared page context from `backend/page.json`, or an empty object.
