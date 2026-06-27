@@ -1467,7 +1467,8 @@ body.cart-open .cart-drawer {
 .form-field select,
 .form-field textarea,
 .gift-form input,
-.gift-form select {
+.gift-form select,
+.gift-form textarea {
   width: 100%;
   padding: 11px 13px;
   font: inherit;
@@ -1479,7 +1480,9 @@ body.cart-open .cart-drawer {
 .form-field input:focus,
 .form-field select:focus,
 .form-field textarea:focus,
-.gift-form input:focus { outline: none; border-color: var(--brand-hover); }
+.gift-form input:focus,
+.gift-form select:focus,
+.gift-form textarea:focus { outline: none; border-color: var(--brand-hover); }
 
 /* Button variants used by templates but never defined. */
 .btn-small { padding: 0.5rem 0.95rem; font-size: 0.92rem; }
@@ -1613,6 +1616,48 @@ body.cart-open .cart-drawer {
 .nav-logout { padding: 0.45rem 0.9rem; font-size: 0.9rem; }
 
 /* Gift cards (gjafabref). */
+.gift-hero {
+  display: grid;
+  gap: 28px;
+  align-items: center;
+  margin: -16px 0 26px;
+}
+
+.gift-hero-copy {
+  min-width: 0;
+}
+
+.gift-hero-copy h1 {
+  margin: 10px 0 0;
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: clamp(2.4rem, 7vw, 4.8rem);
+}
+
+.gift-hero-media {
+  display: block;
+  overflow: hidden;
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.22);
+}
+
+.gift-hero-media img {
+  display: block;
+  width: 100%;
+  height: auto;
+  aspect-ratio: 1717 / 916;
+  object-fit: cover;
+}
+
+@media (min-width: 900px) {
+  .gift-hero {
+    grid-template-columns: minmax(0, 0.92fr) minmax(360px, 1.08fr);
+    margin-top: -22px;
+  }
+}
+
 .gift-perks { list-style: none; padding: 0; margin: 18px 0 0; display: grid; gap: 10px; }
 .gift-perks li {
   position: relative;
@@ -1644,6 +1689,92 @@ body.cart-open .cart-drawer {
 }
 .gift-form { display: grid; gap: 14px; margin-top: 14px; }
 .gift-form label { display: grid; gap: 6px; color: var(--muted); font-size: 0.9rem; }
+.gift-theme-fieldset {
+  display: grid;
+  gap: 12px;
+  padding: 0;
+  margin: 2px 0 0;
+  border: 0;
+}
+
+.gift-theme-fieldset legend {
+  margin-bottom: 2px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.gift-form .gift-theme-option {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  min-height: 92px;
+  padding: 10px;
+  color: var(--text);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.gift-form .gift-theme-option:has(input:checked) {
+  border-color: var(--brand-hover);
+  background: rgba(5, 150, 105, 0.14);
+}
+
+.gift-theme-option input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.gift-theme-option img {
+  width: 76px;
+  height: 76px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+}
+
+.gift-theme-option span {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.gift-theme-option strong {
+  font-family: var(--font-heading);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.gift-theme-option small {
+  color: var(--muted);
+  line-height: 1.35;
+}
+
+@media (min-width: 760px) {
+  .gift-theme-fieldset {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .gift-theme-fieldset legend {
+    grid-column: 1 / -1;
+  }
+
+  .gift-form .gift-theme-option {
+    grid-template-columns: 1fr;
+    align-content: start;
+    min-height: 0;
+  }
+
+  .gift-theme-option img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 1;
+  }
+}
 .gift-status { margin: 14px 0 0; color: var(--muted); }
 .gift-note { color: var(--muted); font-size: 0.92rem; }
 .detail-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }

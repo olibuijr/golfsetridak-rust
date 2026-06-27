@@ -195,6 +195,7 @@ fn issue_gift_card(
                 meta_str(item, "recipientPhone"),
                 meta_str(item, "recipientName"),
                 meta_str(item, "message"),
+                meta_str(item, "theme"),
                 user_id,
                 cart_id,
                 now_ms,

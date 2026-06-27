@@ -1511,7 +1511,13 @@ fn resolve_gift_card_item(body: &Value) -> Result<cart::ResolvedItem, (u16, Stri
         ));
     }
     let mut meta = vec![("amount".into(), Value::Int(amount))];
-    for key in ["recipientName", "recipientEmail", "message", "deliveryAt"] {
+    for key in [
+        "recipientName",
+        "recipientEmail",
+        "message",
+        "deliveryAt",
+        "theme",
+    ] {
         if let Some(value) = str_field(body, key).filter(|s| !s.trim().is_empty()) {
             meta.push((key.into(), Value::Str(value.trim().to_string())));
         }
@@ -1837,6 +1843,7 @@ fn api_admin_giftcards(store: &GiftCardStore, req: &Request, path_id: Option<&st
             let recipient_phone = str_field(&body, "recipientPhone");
             let message = str_field(&body, "message");
             let currency = str_field(&body, "currency");
+            let theme = str_field(&body, "theme");
 
             // Bulk issuance: `count` cards (default 1, capped at 100).
             let count = int_field(&body, "count").unwrap_or(1).clamp(1, 100);
@@ -1852,6 +1859,7 @@ fn api_admin_giftcards(store: &GiftCardStore, req: &Request, path_id: Option<&st
                         recipient_phone,
                         recipient_name,
                         message,
+                        theme,
                         expires_at,
                         delivery_at,
                     },

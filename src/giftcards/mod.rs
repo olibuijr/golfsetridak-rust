@@ -38,6 +38,7 @@ pub struct GiftCard {
     pub recipient_phone: Option<String>,
     pub recipient_name: Option<String>,
     pub message: Option<String>,
+    pub theme: String,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -63,6 +64,7 @@ pub struct IssueParams<'a> {
     pub recipient_phone: Option<&'a str>,
     pub recipient_name: Option<&'a str>,
     pub message: Option<&'a str>,
+    pub theme: Option<&'a str>,
     pub expires_at: Option<i64>,
     pub delivery_at: Option<i64>,
 }
@@ -229,6 +231,7 @@ impl Store {
                 recipient_phone: p.recipient_phone.map(|s| s.to_string()),
                 recipient_name: p.recipient_name.map(|s| s.to_string()),
                 message: p.message.map(|s| s.to_string()),
+                theme: normalize_theme(p.theme).to_string(),
                 created_at: now_ms,
                 updated_at: now_ms,
             };
@@ -401,6 +404,10 @@ fn gift_card_record(card: &GiftCard) -> Value {
         ("recipient_phone".into(), opt_str(&card.recipient_phone)),
         ("recipient_name".into(), opt_str(&card.recipient_name)),
         ("message".into(), opt_str(&card.message)),
+        (
+            "theme".into(),
+            Value::Str(normalize_theme(Some(&card.theme)).into()),
+        ),
         ("created_at".into(), Value::Int(card.created_at)),
         ("updated_at".into(), Value::Int(card.updated_at)),
     ])
@@ -409,6 +416,7 @@ fn gift_card_record(card: &GiftCard) -> Value {
 fn gift_card_from_value(v: &Value) -> Option<GiftCard> {
     let s = |k: &str| v.get(k).and_then(Value::as_str).map(str::to_string);
     let i = |k: &str| v.get(k).and_then(Value::as_i64);
+    let theme = normalize_theme(v.get("theme").and_then(Value::as_str));
     Some(GiftCard {
         id: s("id")?,
         code: s("code")?,
@@ -425,6 +433,7 @@ fn gift_card_from_value(v: &Value) -> Option<GiftCard> {
         recipient_phone: s("recipient_phone"),
         recipient_name: s("recipient_name"),
         message: s("message"),
+        theme: theme.to_string(),
         created_at: i("created_at").unwrap_or(0),
         updated_at: i("updated_at").unwrap_or(0),
     })
@@ -544,12 +553,7 @@ pub fn dispatch_delivery(card: &GiftCard) -> Result<(), String> {
     }
 
     if let Some(email) = card.recipient_email.as_deref().filter(|s| !s.is_empty()) {
-        let html = format!(
-            "<p>{greeting}</p><p>Þú hefur fengið gjafabréf hjá Golfsetrinu Akureyri.</p>\
-             <p>Kóði: <strong>{code}</strong></p><p>Upphæð: {amount}</p>",
-            code = card.code,
-            amount = amount_label,
-        );
+        let html = gift_card_email_html(card);
         let body = Value::Object(vec![
             ("to".into(), Value::Str(email.to_string())),
             (
@@ -565,6 +569,99 @@ pub fn dispatch_delivery(card: &GiftCard) -> Result<(), String> {
 
     // No recipient contact — nothing to send.
     Ok(())
+}
+
+pub fn normalize_theme(value: Option<&str>) -> &'static str {
+    match value.unwrap_or("").trim().to_lowercase().as_str() {
+        "birthday" | "afmaeli" | "afmæli" => "birthday",
+        "christmas" | "jol" | "jól" => "christmas",
+        "general" | "other" | "annad" | "annað" | "annad-tilefni" | "annad tilefni"
+        | "annað tilefni" => "general",
+        _ => "general",
+    }
+}
+
+pub fn theme_label(theme: &str) -> &'static str {
+    match normalize_theme(Some(theme)) {
+        "birthday" => "Afmæli",
+        "christmas" => "Jól",
+        _ => "Annað tilefni",
+    }
+}
+
+pub fn theme_email_banner(theme: &str) -> &'static str {
+    match normalize_theme(Some(theme)) {
+        "birthday" => "/assets/gjafabref/email-birthday.png",
+        "christmas" => "/assets/gjafabref/email-christmas.png",
+        _ => "/assets/gjafabref/email-general.png",
+    }
+}
+
+pub fn gift_card_email_html(card: &GiftCard) -> String {
+    let base_url = std::env::var("GOLFSETRIDAK_PUBLIC_URL")
+        .ok()
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| "https://rust.golfsetridak.is".into());
+    let base_url = base_url.trim_end_matches('/');
+    let banner = format!("{base_url}{}", theme_email_banner(&card.theme));
+    let greeting = card
+        .recipient_name
+        .as_deref()
+        .map(|n| format!("Hæ {}!", escape_html(n)))
+        .unwrap_or_else(|| "Hæ!".into());
+    let note = card
+        .message
+        .as_deref()
+        .filter(|m| !m.trim().is_empty())
+        .map(|m| {
+            format!(
+                "<p style=\"margin:18px 0 0;color:#d6e0d8;line-height:1.55;\">{}</p>",
+                escape_html(m)
+            )
+        })
+        .unwrap_or_default();
+    let amount = format!("{} {}", card.amount, escape_html(&card.currency));
+    let label = theme_label(&card.theme);
+
+    format!(
+        "<div style=\"margin:0;padding:0;background:#17211d;color:#f5f7f4;font-family:Arial,sans-serif;\">\
+           <div style=\"max-width:640px;margin:0 auto;padding:24px;\">\
+             <img src=\"{banner}\" alt=\"{label}\" width=\"592\" style=\"display:block;width:100%;height:auto;border-radius:12px;margin:0 0 22px;\" />\
+             <p style=\"margin:0 0 10px;color:#a3e635;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;\">{label}</p>\
+             <h1 style=\"margin:0 0 12px;font-size:30px;line-height:1.15;\">Gjafabréf frá Golfsetrinu Akureyri</h1>\
+             <p style=\"margin:0 0 18px;color:#d6e0d8;line-height:1.55;\">{greeting} Þú hefur fengið gjafabréf hjá Golfsetrinu Akureyri.</p>\
+             <div style=\"padding:18px;border:1px solid rgba(255,255,255,.16);border-radius:12px;background:#223129;\">\
+               <p style=\"margin:0 0 8px;color:#9fb1a5;\">Kóði</p>\
+               <p style=\"margin:0 0 16px;font-size:28px;font-weight:700;letter-spacing:.04em;\">{code}</p>\
+               <p style=\"margin:0;color:#9fb1a5;\">Upphæð</p>\
+               <p style=\"margin:4px 0 0;font-size:22px;font-weight:700;\">{amount}</p>\
+             </div>\
+             {note}\
+             <p style=\"margin:22px 0 0;color:#9fb1a5;font-size:14px;line-height:1.5;\">Gjafabréfið gildir fyrir tímabókanir og klippikort í Trackman-hermi Golfsetursins.</p>\
+           </div>\
+         </div>",
+        banner = escape_html(&banner),
+        label = label,
+        greeting = greeting,
+        code = escape_html(&card.code),
+        amount = amount,
+        note = note,
+    )
+}
+
+fn escape_html(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '&' => out.push_str("&amp;"),
+            '<' => out.push_str("&lt;"),
+            '>' => out.push_str("&gt;"),
+            '"' => out.push_str("&quot;"),
+            '\'' => out.push_str("&#39;"),
+            _ => out.push(ch),
+        }
+    }
+    out
 }
 
 /// POST a JSON body to the local sidecar over plaintext TCP (mirrors the auth
@@ -661,6 +758,7 @@ mod tests {
                     recipient_phone: None,
                     recipient_name: None,
                     message: None,
+                    theme: None,
                     expires_at: None,
                     delivery_at: None,
                 },
