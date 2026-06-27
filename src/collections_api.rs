@@ -149,6 +149,71 @@ impl CollectionsApi {
             .find(|r| r.get("id").and_then(Value::as_i64) == Some(id))
     }
 
+    // ---- in-process writes ------------------------------------------------
+    //
+    // Thin write helpers so admin page handlers can mutate the collections
+    // store directly instead of round-tripping through HTTP dispatch. They
+    // mirror the create/update/delete arms of [`dispatch`] exactly — relation
+    // existence checks and embedding (re)indexing included — but take an
+    // already-built JSON object so callers skip body parsing/multipart. Errors
+    // are returned as `(http_status, message)` so callers can answer directly.
+
+    /// Create a record in `collection` from a JSON object input. Mirrors the
+    /// auto-API `POST` create arm. Returns the created record (with its
+    /// framework-assigned `id`), or an `(http_status, message)` error.
+    pub fn create_record(&self, collection: &str, input: Value) -> Result<Value, (u16, String)> {
+        let coll = self
+            .collection(collection)
+            .ok_or_else(|| (404, format!("unknown collection: {collection}")))?;
+        let record = {
+            let mut store = self.store.lock().expect("store mutex poisoned");
+            store
+                .create_checked(coll, input, &self.collections)
+                .map_err(|e| coll_error_status(&e))?
+        };
+        self.index_record(coll, &record);
+        Ok(record)
+    }
+
+    /// Apply a partial `patch` to record `id` in `collection`. Mirrors the
+    /// auto-API `PATCH` update arm. `Ok(None)` means the record does not exist.
+    pub fn update_record(
+        &self,
+        collection: &str,
+        id: u64,
+        patch: Value,
+    ) -> Result<Option<Value>, (u16, String)> {
+        let coll = self
+            .collection(collection)
+            .ok_or_else(|| (404, format!("unknown collection: {collection}")))?;
+        let record = {
+            let mut store = self.store.lock().expect("store mutex poisoned");
+            match store.update_checked(coll, id, patch, &self.collections) {
+                Ok(Some(r)) => r,
+                Ok(None) => return Ok(None),
+                Err(e) => return Err(coll_error_status(&e)),
+            }
+        };
+        self.index_record(coll, &record);
+        Ok(Some(record))
+    }
+
+    /// Delete record `id` from `collection`, dropping any stored embedding.
+    /// Mirrors the auto-API `DELETE` arm. `Ok(false)` means nothing was removed.
+    pub fn delete_record(&self, collection: &str, id: u64) -> Result<bool, (u16, String)> {
+        let coll = self
+            .collection(collection)
+            .ok_or_else(|| (404, format!("unknown collection: {collection}")))?;
+        let removed = {
+            let mut store = self.store.lock().expect("store mutex poisoned");
+            store.delete(coll, id).map_err(|e| coll_error_status(&e))?
+        };
+        if removed {
+            self.deindex_record(coll, id);
+        }
+        Ok(removed)
+    }
+
     /// Route a `/api/collections...` request. `segments` are the path segments
     /// *after* `/api/collections` (so `/api/collections/posts/records/3` arrives
     /// as `["posts", "records", "3"]`). Returns `None` when the path shape is
@@ -846,6 +911,17 @@ fn coll_error(e: &CollError) -> (u16, Value) {
             500,
             Value::Object(vec![("error".into(), Value::Str(e.to_string()))]),
         ),
+    }
+}
+
+/// Map a [`CollError`] to an `(http_status, message)` pair for the in-process
+/// write helpers (the `Value`-returning sibling of [`coll_error`]).
+fn coll_error_status(e: &CollError) -> (u16, String) {
+    match e {
+        CollError::Validation(_) | CollError::Json(_) => (400, e.to_string()),
+        CollError::NotFound => (404, "record not found".to_string()),
+        CollError::UnknownCollection(c) => (404, format!("unknown collection: {c}")),
+        CollError::Io(_) | CollError::Corrupt(_) => (500, e.to_string()),
     }
 }
 
