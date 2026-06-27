@@ -1,0 +1,16 @@
+[package]
+name = "akurai-collections"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+description = "Pure-std auto-generated-API engine: declare a collection, get CRUD + substring search over the akurai-storage B+tree. Zero external dependencies."
+
+[lib]
+path = "src/lib.rs"
+
+# Internal workspace crates only — no external runtime dependencies.
+[dependencies]
+akurai-storage = { path = "../storage" }
+akurai-json = { path = "../json" }

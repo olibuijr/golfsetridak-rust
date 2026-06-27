@@ -1,0 +1,11 @@
+[package]
+name = "akurai-storage"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure-std storage engine for AkurAI-Framework: paged single-file store. Zero dependencies."
+
+[lib]
+path = "src/lib.rs"
+
+# No [dependencies] — std only, by design. See AGENTS.md principle #1.

@@ -1,0 +1,11 @@
+[package]
+name = "akurai-router"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+# Pure std, zero dependencies — like every shipped crate. Transport-agnostic:
+# it maps URL patterns to path params and knows nothing about HTTP.
+[dependencies]

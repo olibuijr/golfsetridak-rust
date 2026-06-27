@@ -1,0 +1,12 @@
+[package]
+name = "akurai-css"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "From-scratch atomic/utility CSS engine for AkurAI-Framework (Tailwind-class). Pure std, zero external deps."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Pure std — zero dependencies (internal or external).

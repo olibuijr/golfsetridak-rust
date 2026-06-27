@@ -1,6 +1,6 @@
 [package]
 name = "golfsetridak"
-version = "0.0.20"
+version = "0.0.21"
 edition = "2021"
 license = "MIT"
 description = "Golfsetrið Akureyri — a single-binary website built on the AkurAI-Framework crates."
@@ -10,10 +10,27 @@ authors = ["Ólafur Búi Ólafsson"]
 name = "golfsetridak"
 path = "src/main.rs"
 
+# This repo is its own workspace root and owns the vendored framework crates as
+# members (see framework/FORK.md). The [workspace.package] values mirror the
+# upstream framework root so the vendored crates' `*.workspace = true`
+# inheritance resolves locally — no external workspace required.
+[workspace]
+members = ["framework/crates/*"]
+
+[workspace.package]
+version = "0.8.1"
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/olibuijr/AkurAI-Framework"
+authors = ["Ólafur Búi Ólafsson"]
+
 [dependencies]
 # AkurAI-Framework crates only — zero external runtime dependencies, exactly as
-# the framework itself promises. Path deps to the sibling framework checkout
-# (../AkurAI-Framework, the same layout the framework's own crates/cli uses).
+# the framework itself promises. These are VENDORED into this repo under
+# `framework/crates/*` — a self-contained fork of the framework pinned at the
+# commit recorded in `framework/FORK.md`. The app builds standalone and is NOT
+# affected by in-progress edits in the upstream ../AkurAI-Framework checkout.
+# To pull framework updates, re-vendor deliberately (see framework/FORK.md).
 #
 # Phase 1 (this foundation) links only the crates needed to serve static +
 # templated + markdown content. The data-layer crates (akurai-sqlexec,
@@ -21,27 +38,27 @@ path = "src/main.rs"
 # and the realtime crate (akurai-ws) are wired in later phases when their
 # features land — see PORT.md. Adding an unused crate now would be dead weight
 # in the binary and violate the lean-build rule.
-akurai-http = { path = "../AkurAI-Framework/crates/http" }
-akurai-json = { path = "../AkurAI-Framework/crates/json" }
-akurai-template = { path = "../AkurAI-Framework/crates/template" }
-akurai-markdown = { path = "../AkurAI-Framework/crates/markdown" }
-akurai-router = { path = "../AkurAI-Framework/crates/router" }
-akurai-css = { path = "../AkurAI-Framework/crates/css" }
+akurai-http = { path = "framework/crates/http" }
+akurai-json = { path = "framework/crates/json" }
+akurai-template = { path = "framework/crates/template" }
+akurai-markdown = { path = "framework/crates/markdown" }
+akurai-router = { path = "framework/crates/router" }
+akurai-css = { path = "framework/crates/css" }
 # Phase 3 booking engine: the B+tree storage engine backs bookings, packages,
 # subscriptions and pricing rules. Slot-start-time keys make the tree's keyed
 # uniqueness the no-double-booking guard (see src/booking).
-akurai-storage = { path = "../AkurAI-Framework/crates/storage" }
+akurai-storage = { path = "framework/crates/storage" }
 # Phase 4 auth: SHA-1 (RFC 6455) from the WebSocket crate, reused for
 # salted OTP/session hashing — consistent with the framework's own auth.rs.
-akurai-ws = { path = "../AkurAI-Framework/crates/ws" }
+akurai-ws = { path = "framework/crates/ws" }
 # Collections auto-API: the framework's declarative REST engine that mounts
 # backend/collections.toml as a live CRUD + ?search surface. `akurai-blobs`
 # backs File-field uploads and `akurai-vector` backs semantic ?search; both are
 # used by the vendored collections_api glue (src/collections_api.rs).
-akurai-collections = { path = "../AkurAI-Framework/crates/collections" }
-akurai-blobs = { path = "../AkurAI-Framework/crates/blobs" }
-akurai-vector = { path = "../AkurAI-Framework/crates/vector" }
-akurai-toml = { path = "../AkurAI-Framework/crates/toml" }
+akurai-collections = { path = "framework/crates/collections" }
+akurai-blobs = { path = "framework/crates/blobs" }
+akurai-vector = { path = "framework/crates/vector" }
+akurai-toml = { path = "framework/crates/toml" }
 
 # Match the framework's release profile: one small, stripped, fully-optimized
 # static binary.

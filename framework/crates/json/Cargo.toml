@@ -1,0 +1,11 @@
+[package]
+name = "akurai-json"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure-std JSON value, parser, and serializer for AkurAI-Framework. Zero dependencies."
+
+[lib]
+path = "src/lib.rs"
+
+# No [dependencies] — std only, by design. See AGENTS.md principle #1.

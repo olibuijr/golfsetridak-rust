@@ -1,0 +1,12 @@
+[package]
+name = "akurai-blobs"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure-std content-addressed blob store for AkurAI-Framework, backed by the storage B+tree. Zero external dependencies."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+akurai-storage = { path = "../storage" }

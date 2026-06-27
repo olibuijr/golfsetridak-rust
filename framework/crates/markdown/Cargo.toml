@@ -1,0 +1,11 @@
+[package]
+name = "akurai-markdown"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure-std Markdown → HTML renderer for AkurAI-Framework docs. Zero dependencies."
+
+[lib]
+path = "src/lib.rs"
+
+# No [dependencies] — std only, by design. See AGENTS.md principle #1.

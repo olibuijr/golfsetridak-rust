@@ -1,0 +1,12 @@
+[package]
+name = "akurai-ws"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+authors.workspace = true
+
+# Pure std, like every shipped crate. Depends only on the framework's own HTTP
+# core for the request/response/upgrade primitive.
+[dependencies]
+akurai-http = { path = "../http" }

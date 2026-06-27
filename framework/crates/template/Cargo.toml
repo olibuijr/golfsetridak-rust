@@ -1,0 +1,13 @@
+[package]
+name = "akurai-template"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure-std HTML template engine for AkurAI-Framework (SSR). Zero external deps."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+# Internal workspace crate only — templates render against a JSON Value context.
+akurai-json = { path = "../json" }

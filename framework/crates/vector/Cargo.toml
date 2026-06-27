@@ -1,0 +1,13 @@
+[package]
+name = "akurai-vector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Pure-std semantic-search primitives for AkurAI-Framework: cosine/top-k ranking, f32 byte codec, and an OpenAI-compatible plain-HTTP embedding client. Zero external dependencies."
+
+[lib]
+path = "src/lib.rs"
+
+# Only an internal workspace crate — std otherwise, by design (AGENTS.md #1).
+[dependencies]
+akurai-json = { path = "../json" }
