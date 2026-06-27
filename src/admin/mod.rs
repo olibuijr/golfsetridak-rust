@@ -19,8 +19,8 @@ pub mod settings;
 
 use crate::auth;
 use crate::booking::{self, Booking, Store as BookingStore};
-use crate::collections_api::CollectionsApi;
 use crate::checkout::Store as CheckoutStore;
+use crate::collections_api::CollectionsApi;
 use akurai_http::form::{field, parse_urlencoded};
 use akurai_http::{Method, Request, Response};
 use akurai_json::Value;
