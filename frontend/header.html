@@ -40,16 +40,52 @@
         </div>
         {% for link in nav %}<a href="{{ link.href }}">{{ link.label }}</a>{% endfor %}
       </nav>
-      {% if auth_user_email %}
-      <div class="nav-auth">
-        <span class="nav-user">{{ auth_user_email }}</span>
-        <form method="post" action="/logout" style="display:inline">
-          <button class="btn btn-ghost nav-logout" type="submit">Útskrá</button>
-        </form>
+      <div class="nav-actions">
+        <button class="nav-cart-button" type="button" aria-label="Opna körfu" aria-controls="cart-drawer" aria-expanded="false" data-cart-open>
+          <span class="nav-cart-copy">
+            <span class="nav-cart-title">Karfa</span>
+            <span class="nav-cart-total" data-cart-subtotal>0 kr</span>
+          </span>
+          <span class="cart-count" data-cart-count>0</span>
+        </button>
+        {% if auth_user_email %}
+        <div class="nav-auth">
+          <span class="nav-user">{{ auth_user_email }}</span>
+          <form method="post" action="/logout" style="display:inline">
+            <button class="btn btn-ghost nav-logout" type="submit">Útskrá</button>
+          </form>
+        </div>
+        {% else %}
+        <a class="btn btn-primary nav-login" href="/login">Innskrá</a>
+        {% endif %}
       </div>
-      {% else %}
-      <a class="btn btn-primary nav-login" href="/login">Innskrá</a>
-      {% endif %}
     </header>
     <div class="nav-overlay" hidden></div>
+    <div class="cart-overlay" hidden data-cart-close></div>
+    <aside class="cart-drawer" id="cart-drawer" role="dialog" aria-modal="true" aria-labelledby="cart-drawer-title" aria-hidden="true">
+      <div class="cart-drawer-head">
+        <div>
+          <p class="eyebrow">Verslun</p>
+          <h2 id="cart-drawer-title">Karfan</h2>
+        </div>
+        <button class="cart-drawer-close" type="button" aria-label="Loka körfu" data-cart-close>&times;</button>
+      </div>
+      <div class="cart-drawer-status" aria-live="polite" data-cart-status></div>
+      <div class="cart-drawer-empty" data-cart-empty>
+        <p>Karfan er tóm.</p>
+        <a class="btn btn-primary" href="/verslun">Fara í verslun</a>
+      </div>
+      <div class="cart-drawer-lines" data-cart-items></div>
+      <div class="cart-drawer-foot">
+        <div class="cart-drawer-total-row">
+          <span>Samtals</span>
+          <strong data-cart-subtotal>0 kr</strong>
+        </div>
+        <p>Verð eru með VSK.</p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="/checkout" data-cart-checkout>Greiða</a>
+          <a class="btn btn-secondary" href="/my/verslun/karfa">Skoða körfu</a>
+        </div>
+      </div>
+    </aside>
     <main class="container">

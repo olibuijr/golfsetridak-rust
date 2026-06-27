@@ -1,34 +1,20 @@
 {% include "header" %}
-    <section class="shop-hero">
-      <div>
+    <section class="shop-hero storefront-header">
+      <div class="storefront-copy">
         <span class="eyebrow">Verslun</span>
         <h1>Verslun</h1>
         <p class="lede">Klippikort, gjafir og vörur frá Golfsetrinu á einum stað.</p>
       </div>
-      <a class="btn btn-primary shop-cart-link" href="/my/verslun/karfa">
-        Karfa <span class="cart-count" data-cart-count>{{ cart_item_count_label }}</span>
-      </a>
+      <div class="storefront-cart-summary" aria-live="polite">
+        <span>Karfan þín</span>
+        <strong data-cart-subtotal>{{ cart_subtotal_label }}</strong>
+        <button class="btn btn-primary shop-cart-link" type="button" aria-controls="cart-drawer" aria-expanded="false" data-cart-open>
+          Opna körfu <span class="cart-count" data-cart-count>{{ cart_item_count_label }}</span>
+        </button>
+      </div>
     </section>
 
     <section class="shop-layout">
-      <aside class="shop-sidebar">
-        <div class="shop-filter">
-          <h2>Flokkar</h2>
-          <a class="filter-chip" href="/verslun">Allar vörur</a>
-          {% for category in categories %}
-          <a class="filter-chip" href="#category-{{ category.id }}">{{ category.name }}</a>
-          {% endfor %}
-        </div>
-        <div class="mini-cart" aria-live="polite">
-          <div>
-            <h2>Karfan</h2>
-            <p><span data-cart-count>{{ cart_item_count_label }}</span> vörur</p>
-          </div>
-          <strong data-cart-subtotal>{{ cart_subtotal_label }}</strong>
-          <a class="btn btn-secondary" href="/my/verslun/karfa">Opna körfu</a>
-        </div>
-      </aside>
-
       <div class="product-grid">
         {% if products %}
         {% for product in products %}
@@ -75,7 +61,14 @@
             throw new Error(data.error || "Tókst ekki að bæta í körfu");
           }
           const data = await res.json();
-          if (data && data.cart) updateCartSummary(data.cart);
+          if (data && data.cart) {
+            if (window.GolfCart && window.GolfCart.applyCart) {
+              window.GolfCart.applyCart(data.cart);
+              window.GolfCart.open();
+            } else {
+              updateCartSummary(data.cart);
+            }
+          }
           button.textContent = "Komið í körfu";
           setTimeout(() => { button.textContent = original; button.disabled = false; }, 1200);
         } catch (err) {
