@@ -4,9 +4,9 @@
 
 :root {
   /* Surfaces — dark, slightly green-tinted stone. */
-  --bg: #0a0f0c;
-  --surface: #121a15;
-  --surface-2: #18221c;
+  --bg: #141d18;
+  --surface: #1d2922;
+  --surface-2: #26332b;
   --border: rgba(255, 255, 255, 0.10);
   --border-strong: rgba(255, 255, 255, 0.16);
 
@@ -95,7 +95,7 @@ h3 { font-size: 1.25rem; }
   align-items: center;
   gap: 24px;
   padding: max(14px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 14px max(24px, env(safe-area-inset-left));
-  background: rgba(10, 15, 12, 0.82);
+  background: rgba(20, 29, 24, 0.82);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
@@ -891,7 +891,7 @@ h3 { font-size: 1.25rem; }
 .band-dark {
   margin-inline: -24px;
   padding: 4px 24px;
-  background: linear-gradient(180deg, #05080600, #060a07 12%, #060a07 88%, #05080600);
+  background: linear-gradient(180deg, #0e161100, #0e1611 12%, #0e1611 88%, #0e161100);
 }
 
 /* Feature / icon cards. */
@@ -1055,7 +1055,7 @@ h3 { font-size: 1.25rem; }
   background:
     radial-gradient(940px 440px at 50% -28%, rgba(5, 150, 105, 0.30), transparent 62%),
     radial-gradient(720px 400px at 82% 124%, rgba(163, 230, 53, 0.10), transparent 60%),
-    linear-gradient(180deg, #060a07, var(--bg));
+    linear-gradient(180deg, #0e1611, var(--bg));
 }
 .home-hero-inner {
   position: relative;
@@ -1074,7 +1074,7 @@ h3 { font-size: 1.25rem; }
   height: 100%;
   object-fit: cover;
   z-index: 0;
-  background: #060a07 url(/assets/hero-golf-poster.webp) center/cover no-repeat;
+  background: #0e1611 url(/assets/hero-golf-poster.webp) center/cover no-repeat;
 }
 .home-hero-scrim {
   position: absolute;
@@ -1083,13 +1083,13 @@ h3 { font-size: 1.25rem; }
   background:
     radial-gradient(940px 440px at 50% -28%, rgba(5, 150, 105, 0.30), transparent 62%),
     radial-gradient(720px 400px at 82% 124%, rgba(163, 230, 53, 0.10), transparent 60%),
-    linear-gradient(180deg, rgba(6, 10, 7, 0.62), rgba(10, 15, 12, 0.86));
+    linear-gradient(180deg, rgba(14, 22, 17, 0.52), rgba(20, 29, 24, 0.74));
 }
 @media (prefers-reduced-motion: reduce) {
   .home-hero-video { display: none; }
   .home-hero {
     background-image:
-      linear-gradient(180deg, rgba(6, 10, 7, 0.55), rgba(10, 15, 12, 0.82)),
+      linear-gradient(180deg, rgba(14, 22, 17, 0.48), rgba(20, 29, 24, 0.72)),
       url(/assets/hero-golf-poster.webp);
     background-size: cover;
     background-position: center;
