@@ -847,30 +847,48 @@ button.slot-card {
   align-content: end;
   min-width: 0;
 }
-.storefront-cart-summary {
-  display: grid;
-  align-content: center;
-  justify-items: start;
-  gap: 8px;
-  min-width: min(100%, 240px);
-  padding: 18px 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: rgba(255, 255, 255, 0.04);
-}
-.storefront-cart-summary > span {
-  color: var(--muted);
-  font-size: 0.9rem;
-}
-.storefront-cart-summary strong {
-  font-family: var(--font-heading);
-  font-size: 1.7rem;
-  line-height: 1;
-  color: var(--accent);
-}
-
 .shop-layout {
   display: block;
+}
+
+.shop-categories {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin: 0 0 24px;
+}
+.shop-category-card {
+  display: grid;
+  gap: 6px;
+  min-height: 112px;
+  align-content: space-between;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.06), rgba(16, 185, 129, 0.08));
+  color: var(--text);
+  text-decoration: none;
+}
+.shop-category-card:hover,
+.shop-category-card.is-active {
+  border-color: var(--brand-hover);
+  background: linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(163, 230, 53, 0.1));
+}
+.shop-category-card span {
+  color: var(--muted);
+  font-size: 0.74rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+.shop-category-card strong {
+  font-family: var(--font-heading);
+  font-size: 1.2rem;
+  line-height: 1.1;
+}
+.shop-category-card small {
+  color: var(--accent);
+  font-weight: 700;
 }
 
 .cart-summary,
@@ -882,12 +900,6 @@ button.slot-card {
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 20px;
-}
-
-.shop-cart-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
 }
 
 .cart-count {
@@ -1211,8 +1223,19 @@ button.slot-card {
   .cart-shell {
     grid-template-columns: 1fr;
   }
-  .storefront-cart-summary { justify-items: stretch; }
-  .storefront-cart-summary .btn { width: 100%; }
+  .shop-categories {
+    display: flex;
+    gap: 10px;
+    margin-inline: calc(var(--page-pad) * -1);
+    overflow-x: auto;
+    padding: 0 var(--page-pad) 10px;
+    scroll-snap-type: x proximity;
+  }
+  .shop-category-card {
+    flex: 0 0 min(78vw, 240px);
+    min-height: 104px;
+    scroll-snap-align: start;
+  }
   .inline-form,
   .form-grid,
   .form-grid-three,

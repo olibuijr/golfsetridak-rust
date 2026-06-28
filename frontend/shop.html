@@ -2,23 +2,33 @@
     <section class="shop-hero storefront-header">
       <div class="storefront-copy">
         <span class="eyebrow">Verslun</span>
-        <h1>Verslun</h1>
+        <h1>{% if has_category_filter %}{{ selected_category_name }}{% else %}Verslun{% endif %}</h1>
         <p class="lede">Klippikort, gjafir og vörur frá Golfsetrinu á einum stað.</p>
       </div>
-      <div class="storefront-cart-summary" aria-live="polite">
-        <span>Karfan þín</span>
-        <strong data-cart-subtotal>{{ cart_subtotal_label }}</strong>
-        <button class="btn btn-primary shop-cart-link" type="button" aria-controls="cart-drawer" aria-expanded="false" data-cart-open>
-          Opna körfu <span class="cart-count" data-cart-count>{{ cart_item_count_label }}</span>
-        </button>
-      </div>
     </section>
+
+    {% if has_categories %}
+    <nav class="shop-categories" aria-label="Vöruflokkar">
+      <a class="shop-category-card {% if has_category_filter %}{% else %}is-active{% endif %}" href="/verslun">
+        <span>Allt</span>
+        <strong>Verslun</strong>
+        <small>Allar vörur</small>
+      </a>
+      {% for category in categories %}
+      <a class="shop-category-card {% if category.selected %}is-active{% endif %}" href="{{ category.href }}">
+        <span>Flokkur</span>
+        <strong>{{ category.name }}</strong>
+        <small>{{ category.productCountLabel }}</small>
+      </a>
+      {% endfor %}
+    </nav>
+    {% endif %}
 
     <section class="shop-layout">
       <div class="product-grid">
         {% if products %}
         {% for product in products %}
-        <article class="product-card" id="product-{{ product.id }}">
+        <article class="product-card" id="product-{{ product.id }}" data-product-card data-category="{{ product.categorySlug }}">
           <div class="product-media">
             {% if product.hasImage %}
             <img src="{{ product.displayImageUrl }}" alt="{{ product.name }}" loading="lazy" />
@@ -32,7 +42,17 @@
           </div>
           <footer class="product-footer">
             <strong>{{ product.priceLabel }}</strong>
-            <button class="btn btn-primary" type="button" data-add-product-to-cart data-product-id="{{ product.id }}">Bæta í körfu</button>
+            <button
+              class="btn btn-primary"
+              type="button"
+              data-add-product-to-cart
+              data-product-id="{{ product.id }}"
+              data-product-name="{{ product.name }}"
+              data-product-price="{{ product.price }}"
+              data-cart-type="{{ product.cartType }}"
+              {% if product.hasCartSlotCount %}data-slot-count="{{ product.cartSlotCount }}"{% endif %}
+              {% if product.hasSubscriptionWindow %}data-valid-from="{{ product.subscriptionValidFrom }}" data-valid-until="{{ product.subscriptionValidUntil }}"{% endif %}
+            >Bæta í körfu</button>
           </footer>
         </article>
         {% endfor %}
@@ -53,20 +73,64 @@
       async function addProductToCart(button) {
         if (button.disabled) return;
         const original = button.textContent;
+        const payload = productPayload(button);
         button.disabled = true;
         button.textContent = "Bæti við...";
         try {
-          await postCartItem({
-            type: "product",
-            refId: button.dataset.productId,
-            quantity: 1
-          });
+          await postCartItem(payload);
           button.textContent = "Komið í körfu";
           setTimeout(() => { button.textContent = original; button.disabled = false; }, 1200);
         } catch (err) {
           button.textContent = err.message || "Villa";
           setTimeout(() => { button.textContent = original; button.disabled = false; }, 1800);
         }
+      }
+
+      function productPayload(button) {
+        const id = button.dataset.productId;
+        const name = button.dataset.productName || "Vara";
+        const price = Number(button.dataset.productPrice || 0);
+        const type = button.dataset.cartType || "product";
+        if (type === "gift_card") {
+          return {
+            type: "gift_card",
+            amount: price,
+            theme: "general",
+            message: name
+          };
+        }
+        if (type === "package") {
+          return {
+            type: "package",
+            refId: id,
+            nameSnapshot: name,
+            unitPrice: price,
+            quantity: 1,
+            metadata: {
+              slotCount: Number(button.dataset.slotCount || 10)
+            }
+          };
+        }
+        if (type === "subscription") {
+          const metadata = { dailyLimit: 2 };
+          if (button.dataset.validFrom && button.dataset.validUntil) {
+            metadata.validFrom = button.dataset.validFrom;
+            metadata.validUntil = button.dataset.validUntil;
+          }
+          return {
+            type: "subscription",
+            refId: id,
+            nameSnapshot: name,
+            unitPrice: price,
+            quantity: 1,
+            metadata: metadata
+          };
+        }
+        return {
+          type: "product",
+          refId: id,
+          quantity: 1
+        };
       }
 
       async function postCartItem(payload) {

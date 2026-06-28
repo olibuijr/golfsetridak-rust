@@ -990,11 +990,16 @@ fn api_shop_products(api: &CollectionsApi, req: &Request) -> Response {
     if req.method != Method::Get {
         return json(405, &error_value("method not allowed"));
     }
+    let selected_category = selected_category_slug(api, req);
     json(
         200,
         &Value::Object(vec![(
             "products".into(),
-            Value::Array(collection_product_values(api, true)),
+            Value::Array(collection_product_values_filtered(
+                api,
+                true,
+                selected_category.as_deref(),
+            )),
         )]),
     )
 }
@@ -1007,7 +1012,7 @@ fn api_shop_categories(api: &CollectionsApi, req: &Request) -> Response {
         200,
         &Value::Object(vec![(
             "categories".into(),
-            Value::Array(collection_category_values(api)),
+            Value::Array(collection_public_category_values(api, None)),
         )]),
     )
 }
@@ -1026,7 +1031,7 @@ fn api_admin_products(api: &CollectionsApi, req: &Request, path_id: Option<&str>
                         200,
                         &Value::Object(vec![(
                             "product".into(),
-                            product_value_from_record(&record, &collection_category_names(api)),
+                            product_template_value(api, &record),
                         )]),
                     ),
                     None => json(404, &error_value("not found")),
@@ -1083,7 +1088,7 @@ fn api_admin_products(api: &CollectionsApi, req: &Request, path_id: Option<&str>
                     201,
                     &Value::Object(vec![(
                         "product".into(),
-                        product_value_from_record(&record, &collection_category_names(api)),
+                        product_template_value(api, &record),
                     )]),
                 ),
                 Err((status, msg)) => json(status, &error_value(&msg)),
@@ -1146,7 +1151,7 @@ fn api_admin_products(api: &CollectionsApi, req: &Request, path_id: Option<&str>
                     200,
                     &Value::Object(vec![(
                         "product".into(),
-                        product_value_from_record(&record, &collection_category_names(api)),
+                        product_template_value(api, &record),
                     )]),
                 ),
                 Ok(None) => json(404, &error_value("not found")),
@@ -2425,15 +2430,57 @@ fn collection_category_names(api: &CollectionsApi) -> std::collections::HashMap<
         .collect()
 }
 
+/// Map of `product_categories` record id -> category slug.
+fn collection_category_slugs(api: &CollectionsApi) -> std::collections::HashMap<i64, String> {
+    api.records("product_categories")
+        .into_iter()
+        .filter_map(|c| {
+            let id = c.get("id").and_then(Value::as_i64)?;
+            let slug = c.get("slug").and_then(Value::as_str)?.to_string();
+            Some((id, slug))
+        })
+        .collect()
+}
+
+fn category_product_counts(api: &CollectionsApi) -> std::collections::HashMap<i64, i64> {
+    let mut counts = std::collections::HashMap::new();
+    for product in api.records("products") {
+        if !product
+            .get("active")
+            .and_then(Value::as_bool)
+            .unwrap_or(true)
+        {
+            continue;
+        }
+        if let Some(category_id) = product.get("category").and_then(Value::as_i64) {
+            *counts.entry(category_id).or_insert(0) += 1;
+        }
+    }
+    counts
+}
+
 /// Adapt a `products` collection record into the template shape. `category` is
-/// a relation id resolved to a name via `cat_names`.
+/// a relation id resolved to a name/slug via category maps.
 fn product_value_from_record(
     p: &Value,
     cat_names: &std::collections::HashMap<i64, String>,
+    cat_slugs: &std::collections::HashMap<i64, String>,
 ) -> Value {
     let price = p.get("price").and_then(Value::as_i64).unwrap_or(0);
     let category_id = p.get("category").and_then(Value::as_i64);
     let category_name = category_id.and_then(|id| cat_names.get(&id)).cloned();
+    let category_slug = category_id.and_then(|id| cat_slugs.get(&id)).cloned();
+    let cart_type = product_cart_type(category_slug.as_deref(), category_name.as_deref());
+    let product_text = format!(
+        "{} {}",
+        p.get("name").and_then(Value::as_str).unwrap_or(""),
+        p.get("description").and_then(Value::as_str).unwrap_or("")
+    );
+    let slot_count =
+        (cart_type == "package").then(|| first_positive_int(&product_text).unwrap_or(10));
+    let subscription_year =
+        (cart_type == "subscription").then(|| first_year(&product_text).unwrap_or(0));
+    let has_subscription_window = subscription_year.is_some_and(|year| year > 0);
     let image_url = p.get("image_url").and_then(Value::as_str);
     let display_image_url = image_url
         .and_then(non_empty)
@@ -2469,6 +2516,42 @@ fn product_value_from_record(
             category_name.map(Value::Str).unwrap_or(Value::Null),
         ),
         (
+            "categorySlug".into(),
+            category_slug.map(Value::Str).unwrap_or(Value::Null),
+        ),
+        ("cartType".into(), Value::Str(cart_type.to_string())),
+        (
+            "cartAmount".into(),
+            if cart_type == "gift_card" {
+                Value::Int(price)
+            } else {
+                Value::Null
+            },
+        ),
+        (
+            "cartSlotCount".into(),
+            slot_count.map(Value::Int).unwrap_or(Value::Null),
+        ),
+        ("hasCartSlotCount".into(), Value::Bool(slot_count.is_some())),
+        (
+            "subscriptionValidFrom".into(),
+            subscription_year
+                .filter(|year| *year > 0)
+                .map(|year| Value::Str(format!("{year}-05-31")))
+                .unwrap_or(Value::Null),
+        ),
+        (
+            "subscriptionValidUntil".into(),
+            subscription_year
+                .filter(|year| *year > 0)
+                .map(|year| Value::Str(format!("{year}-09-01")))
+                .unwrap_or(Value::Null),
+        ),
+        (
+            "hasSubscriptionWindow".into(),
+            Value::Bool(has_subscription_window),
+        ),
+        (
             "active".into(),
             Value::Bool(p.get("active").and_then(Value::as_bool).unwrap_or(true)),
         ),
@@ -2482,6 +2565,52 @@ fn product_value_from_record(
             Value::Bool(image_url.and_then(non_empty).is_some()),
         ),
     ])
+}
+
+fn product_template_value(api: &CollectionsApi, product: &Value) -> Value {
+    product_value_from_record(
+        product,
+        &collection_category_names(api),
+        &collection_category_slugs(api),
+    )
+}
+
+fn product_cart_type(category_slug: Option<&str>, category_name: Option<&str>) -> &'static str {
+    let haystack = format!(
+        "{} {}",
+        category_slug.unwrap_or(""),
+        category_name.map(shop::slugify).unwrap_or_default()
+    );
+    if haystack.contains("gjafakort") || haystack.contains("gjafabref") {
+        "gift_card"
+    } else if haystack.contains("klippikort") || haystack.contains("package") {
+        "package"
+    } else if haystack.contains("sumaraskrift")
+        || haystack.contains("askrift")
+        || haystack.contains("subscription")
+    {
+        "subscription"
+    } else {
+        "product"
+    }
+}
+
+fn first_positive_int(text: &str) -> Option<i64> {
+    let mut digits = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_digit() {
+            digits.push(ch);
+        } else if !digits.is_empty() {
+            break;
+        }
+    }
+    digits.parse::<i64>().ok().filter(|n| *n > 0)
+}
+
+fn first_year(text: &str) -> Option<i64> {
+    text.split(|ch: char| !ch.is_ascii_digit())
+        .filter_map(|part| part.parse::<i64>().ok())
+        .find(|year| (2020..=2100).contains(year))
 }
 
 fn non_empty(value: &str) -> Option<&str> {
@@ -2507,30 +2636,74 @@ fn fallback_product_image_url<'a>(p: &Value, category_name: Option<&str>) -> Opt
 /// All products from the collections store, sorted, optionally active-only, as
 /// template Values.
 fn collection_product_values(api: &CollectionsApi, active_only: bool) -> Vec<Value> {
+    collection_product_values_filtered(api, active_only, None)
+}
+
+fn collection_product_values_filtered(
+    api: &CollectionsApi,
+    active_only: bool,
+    category_slug: Option<&str>,
+) -> Vec<Value> {
     let cat_names = collection_category_names(api);
+    let cat_slugs = collection_category_slugs(api);
     let mut products = api.records("products");
     sort_catalog(&mut products);
     products
         .into_iter()
         .filter(|p| !active_only || p.get("active").and_then(Value::as_bool).unwrap_or(true))
-        .map(|p| product_value_from_record(&p, &cat_names))
+        .filter(|p| match category_slug {
+            Some(slug) => p
+                .get("category")
+                .and_then(Value::as_i64)
+                .and_then(|id| cat_slugs.get(&id))
+                .is_some_and(|product_slug| product_slug == slug),
+            None => true,
+        })
+        .map(|p| product_value_from_record(&p, &cat_names, &cat_slugs))
         .collect()
 }
 
 /// Adapt a `product_categories` collection record into the template shape.
 fn category_value_from_record(c: &Value) -> Value {
+    category_value_from_record_with_count(c, None, None)
+}
+
+fn category_value_from_record_with_count(
+    c: &Value,
+    product_count: Option<i64>,
+    selected_slug: Option<&str>,
+) -> Value {
     let s = |k: &str| c.get(k).and_then(Value::as_str).unwrap_or("").to_string();
     let active = c.get("active").and_then(Value::as_bool).unwrap_or(true);
+    let slug = s("slug");
+    let count = product_count.unwrap_or(0);
     Value::Object(vec![
         (
             "id".into(),
             Value::Int(c.get("id").and_then(Value::as_i64).unwrap_or(0)),
         ),
         ("name".into(), Value::Str(s("name"))),
-        ("slug".into(), Value::Str(s("slug"))),
+        ("slug".into(), Value::Str(slug.clone())),
+        (
+            "href".into(),
+            Value::Str(format!("/verslun?category={slug}")),
+        ),
         (
             "description".into(),
             opt_str_value(c.get("description").and_then(Value::as_str)),
+        ),
+        ("productCount".into(), Value::Int(count)),
+        (
+            "productCountLabel".into(),
+            Value::Str(if count == 1 {
+                "1 vara".into()
+            } else {
+                format!("{count} vörur")
+            }),
+        ),
+        (
+            "selected".into(),
+            Value::Bool(selected_slug == Some(slug.as_str())),
         ),
         (
             "position".into(),
@@ -2546,6 +2719,44 @@ fn collection_category_values(api: &CollectionsApi) -> Vec<Value> {
     let mut cats = api.records("product_categories");
     sort_catalog(&mut cats);
     cats.iter().map(category_value_from_record).collect()
+}
+
+fn collection_public_category_values(
+    api: &CollectionsApi,
+    selected_slug: Option<&str>,
+) -> Vec<Value> {
+    let counts = category_product_counts(api);
+    let mut cats = api.records("product_categories");
+    sort_catalog(&mut cats);
+    cats.iter()
+        .filter(|c| c.get("active").and_then(Value::as_bool).unwrap_or(true))
+        .filter_map(|c| {
+            let id = c.get("id").and_then(Value::as_i64)?;
+            let count = *counts.get(&id).unwrap_or(&0);
+            (count > 0)
+                .then(|| category_value_from_record_with_count(c, Some(count), selected_slug))
+        })
+        .collect()
+}
+
+fn selected_category_slug(api: &CollectionsApi, req: &Request) -> Option<String> {
+    let pairs = query_pairs(req);
+    let raw = field(&pairs, "category")?.trim();
+    if raw.is_empty() || raw == "all" {
+        return None;
+    }
+    let wanted = shop::slugify(raw);
+    api.records("product_categories")
+        .into_iter()
+        .filter(|c| c.get("active").and_then(Value::as_bool).unwrap_or(true))
+        .filter_map(|c| {
+            c.get("slug")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .or_else(|| c.get("name").and_then(Value::as_str).map(shop::slugify))
+        })
+        .find(|slug| slug == &wanted)
+        .or(Some(wanted))
 }
 
 /// Active pricing rules from the `pricing_rules` collection, in ascending-id
@@ -2832,6 +3043,23 @@ fn shop_page(
             Err(_) => (Value::Object(vec![]), None, 0, shop::format_isk(0), false),
         };
 
+    let selected_category = selected_category_slug(api, req);
+    let products = collection_product_values_filtered(api, true, selected_category.as_deref());
+    let categories = collection_public_category_values(api, selected_category.as_deref());
+    let selected_category_name = categories.iter().find_map(|category| {
+        let selected = category
+            .get("selected")
+            .and_then(Value::as_bool)
+            .unwrap_or(false);
+        selected.then(|| {
+            category
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string()
+        })
+    });
+
     let mut resp = render(
         root,
         "shop",
@@ -2840,13 +3068,23 @@ fn shop_page(
                 "page_title".into(),
                 Value::Str("Verslun — Golfsetrið Akureyri".into()),
             ),
+            ("products".into(), Value::Array(products)),
+            ("categories".into(), Value::Array(categories.clone())),
+            ("has_categories".into(), Value::Bool(!categories.is_empty())),
             (
-                "products".into(),
-                Value::Array(collection_product_values(api, true)),
+                "selected_category".into(),
+                selected_category.map(Value::Str).unwrap_or(Value::Null),
             ),
             (
-                "categories".into(),
-                Value::Array(collection_category_values(api)),
+                "selected_category_name".into(),
+                selected_category_name
+                    .clone()
+                    .map(Value::Str)
+                    .unwrap_or(Value::Null),
+            ),
+            (
+                "has_category_filter".into(),
+                Value::Bool(selected_category_name.is_some()),
             ),
             ("cart".into(), cart_value),
             ("cart_item_count".into(), Value::Int(item_count)),
