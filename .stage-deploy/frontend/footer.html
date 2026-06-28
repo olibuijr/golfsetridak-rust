@@ -119,6 +119,7 @@
           itemsEl.hidden = items.length === 0;
           items.forEach(function (item) {
             var quantity = Number(item.quantity || 0);
+            var quantityLocked = Boolean(item.quantityLocked || item.type === 'slot');
             var line = document.createElement('article');
             line.className = 'cart-drawer-line';
             line.dataset.itemId = item.id || '';
@@ -131,31 +132,37 @@
             var title = document.createElement('h3');
             title.textContent = item.nameSnapshot || 'Vara';
             var price = document.createElement('p');
-            price.textContent = (item.unitPriceLabel || formatISK(item.unitPrice)) + ' x ' + quantity;
+            price.textContent = item.lineSummary || ((item.unitPriceLabel || formatISK(item.unitPrice)) + ' x ' + quantity);
             main.append(meta, title, price);
 
             var bottom = document.createElement('div');
             bottom.className = 'cart-drawer-line-bottom';
             var qty = document.createElement('div');
-            qty.className = 'cart-drawer-qty';
-            var minus = document.createElement('button');
-            minus.type = 'button';
-            minus.textContent = '-';
-            minus.setAttribute('aria-label', 'Fækka ' + (item.nameSnapshot || 'vöru'));
-            minus.addEventListener('click', function () {
-              setQuantity(item.id, Math.max(0, quantity - 1));
-            });
-            var out = document.createElement('output');
-            out.textContent = String(quantity);
-            out.setAttribute('aria-label', 'Magn');
-            var plus = document.createElement('button');
-            plus.type = 'button';
-            plus.textContent = '+';
-            plus.setAttribute('aria-label', 'Fjölga ' + (item.nameSnapshot || 'vöru'));
-            plus.addEventListener('click', function () {
-              setQuantity(item.id, quantity + 1);
-            });
-            qty.append(minus, out, plus);
+            if (quantityLocked) {
+              qty.className = 'cart-drawer-qty cart-drawer-qty-locked';
+              qty.textContent = item.quantityLabel || '1 klst.';
+              qty.setAttribute('aria-label', 'Magn fast');
+            } else {
+              qty.className = 'cart-drawer-qty';
+              var minus = document.createElement('button');
+              minus.type = 'button';
+              minus.textContent = '-';
+              minus.setAttribute('aria-label', 'Fækka ' + (item.nameSnapshot || 'vöru'));
+              minus.addEventListener('click', function () {
+                setQuantity(item.id, Math.max(0, quantity - 1));
+              });
+              var out = document.createElement('output');
+              out.textContent = String(quantity);
+              out.setAttribute('aria-label', 'Magn');
+              var plus = document.createElement('button');
+              plus.type = 'button';
+              plus.textContent = '+';
+              plus.setAttribute('aria-label', 'Fjölga ' + (item.nameSnapshot || 'vöru'));
+              plus.addEventListener('click', function () {
+                setQuantity(item.id, quantity + 1);
+              });
+              qty.append(minus, out, plus);
+            }
 
             var total = document.createElement('strong');
             total.className = 'cart-drawer-line-total';

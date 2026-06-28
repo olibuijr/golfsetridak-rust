@@ -123,7 +123,7 @@ impl Store {
     pub fn add_item(
         &self,
         cart_id: &str,
-        item: ResolvedItem,
+        mut item: ResolvedItem,
         now_ms: i64,
     ) -> Result<CartSummary, String> {
         validate_item_type(&item.item_type)?;
@@ -139,6 +139,7 @@ impl Store {
         if item.quantity < 1 {
             return Err("quantity must be positive".into());
         }
+        item.quantity = stored_quantity(&item.item_type, item.quantity);
 
         let mut t = self.lock();
         let mut cart = cart_by_id(&mut t.carts, cart_id)
@@ -235,6 +236,21 @@ impl Store {
         let item = item_by_id(&mut t.items, item_id)
             .filter(|i| i.cart_id == cart_id)
             .ok_or_else(|| "item not found".to_string())?;
+        if item.item_type == "slot" {
+            if quantity != 1 {
+                return Err("Bókunartími er alltaf einn klukkutími".into());
+            }
+            if item.quantity != 1 {
+                let mut next = item;
+                next.quantity = 1;
+                put_item(&mut t.items, &next).map_err(io_err)?;
+                t.items.commit().map_err(io_err)?;
+                cart.updated_at = now_ms;
+                put_cart(&mut t.carts, &cart).map_err(io_err)?;
+                t.carts.commit().map_err(io_err)?;
+            }
+            return Ok(summary_locked(&mut t, &cart));
+        }
         if quantity == 0 {
             t.items.delete(item.id.as_bytes()).map_err(io_err)?;
         } else {
@@ -335,6 +351,13 @@ pub fn cart_value(summary: &CartSummary) -> Value {
 }
 
 fn item_value(item: &CartItem) -> Value {
+    let quantity = display_quantity(item);
+    let line_total = item.unit_price.saturating_mul(quantity);
+    let line_summary = if item.item_type == "slot" {
+        format!("{} · 1 klst.", format_isk(item.unit_price))
+    } else {
+        format!("{} × {}", format_isk(item.unit_price), quantity)
+    };
     Value::Object(vec![
         ("id".into(), Value::Str(item.id.clone())),
         ("cartId".into(), Value::Str(item.cart_id.clone())),
@@ -353,17 +376,24 @@ fn item_value(item: &CartItem) -> Value {
             "unitPriceLabel".into(),
             Value::Str(format_isk(item.unit_price)),
         ),
-        ("quantity".into(), Value::Int(item.quantity)),
+        ("quantity".into(), Value::Int(quantity)),
+        (
+            "quantityLabel".into(),
+            Value::Str(if item.item_type == "slot" {
+                "1 klst.".into()
+            } else {
+                quantity.to_string()
+            }),
+        ),
+        (
+            "quantityLocked".into(),
+            Value::Bool(item.item_type == "slot"),
+        ),
         ("metadata".into(), item.metadata.clone()),
         ("createdAt".into(), Value::Int(item.created_at)),
-        (
-            "lineTotal".into(),
-            Value::Int(item.unit_price.saturating_mul(item.quantity)),
-        ),
-        (
-            "lineTotalLabel".into(),
-            Value::Str(format_isk(item.unit_price.saturating_mul(item.quantity))),
-        ),
+        ("lineSummary".into(), Value::Str(line_summary)),
+        ("lineTotal".into(), Value::Int(line_total)),
+        ("lineTotalLabel".into(), Value::Str(format_isk(line_total))),
     ])
 }
 
@@ -411,6 +441,18 @@ fn validate_item_type(item_type: &str) -> Result<(), String> {
         "product" | "package" | "slot" | "subscription" | "gift_card" => Ok(()),
         _ => Err("invalid type".into()),
     }
+}
+
+fn stored_quantity(item_type: &str, quantity: i64) -> i64 {
+    if item_type == "slot" {
+        1
+    } else {
+        quantity
+    }
+}
+
+fn display_quantity(item: &CartItem) -> i64 {
+    stored_quantity(&item.item_type, item.quantity).max(1)
 }
 
 fn valid_cart_id(value: &str) -> bool {
@@ -532,9 +574,9 @@ fn summary_locked(t: &mut Trees, cart: &Cart) -> CartSummary {
     let items = cart_items(&mut t.items, &cart.id);
     let subtotal = items
         .iter()
-        .map(|i| i.unit_price.saturating_mul(i.quantity))
+        .map(|i| i.unit_price.saturating_mul(display_quantity(i)))
         .sum();
-    let item_count = items.iter().map(|i| i.quantity).sum();
+    let item_count = items.iter().map(display_quantity).sum();
     CartSummary {
         id: cart.id.clone(),
         user_id: cart.user_id.clone(),
@@ -637,6 +679,32 @@ mod tests {
     }
 
     #[test]
+    fn slot_quantity_is_locked_to_one() {
+        let (store, dir) = temp_store("slot-qty");
+        let (cart, _) = store.get_or_create_open(None, 100).unwrap();
+        let mut item = slot("2026-06-28T16:00:00.000Z", 3500);
+        item.quantity = 4;
+
+        let cart = store.add_item(&cart.id, item, 101).unwrap();
+        assert_eq!(cart.items.len(), 1);
+        assert_eq!(cart.items[0].quantity, 1);
+        assert_eq!(cart.item_count, 1);
+        assert_eq!(cart.subtotal, 3500);
+
+        let item_id = cart.items[0].id.clone();
+        let err = store
+            .update_quantity(&cart.id, &item_id, 2, 102)
+            .unwrap_err();
+        assert_eq!(err, "Bókunartími er alltaf einn klukkutími");
+
+        let cart = store.update_quantity(&cart.id, &item_id, 1, 103).unwrap();
+        assert_eq!(cart.items[0].quantity, 1);
+        assert_eq!(cart.item_count, 1);
+        assert_eq!(cart.subtotal, 3500);
+        cleanup(&dir);
+    }
+
+    #[test]
     fn merge_open_cart_into_user_cart_moves_items_and_dedupes_slots() {
         let (store, dir) = temp_store("merge");
         let (anon, _) = store.get_or_create_open(Some("anon-cart"), 100).unwrap();
@@ -684,6 +752,19 @@ mod tests {
         assert_eq!(
             value.get("nameSnapshot").and_then(Value::as_str),
             Some("28. júní 2026 kl. 16:00")
+        );
+        assert_eq!(value.get("quantity").and_then(Value::as_i64), Some(1));
+        assert_eq!(
+            value.get("quantityLabel").and_then(Value::as_str),
+            Some("1 klst.")
+        );
+        assert_eq!(
+            value.get("quantityLocked").and_then(Value::as_bool),
+            Some(true)
+        );
+        assert_eq!(
+            value.get("lineSummary").and_then(Value::as_str),
+            Some("3.500 kr · 1 klst.")
         );
     }
 }

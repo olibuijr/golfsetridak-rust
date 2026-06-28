@@ -444,6 +444,17 @@ body.cart-open .cart-drawer {
   font-weight: 700;
   line-height: 34px;
 }
+.cart-drawer-qty-locked {
+  display: inline-flex;
+  min-width: 84px;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
+  padding: 0 12px;
+  border-radius: 999px;
+  color: var(--muted);
+  font-weight: 700;
+}
 .cart-drawer-line-total {
   font-family: var(--font-heading);
   color: var(--accent);
@@ -997,6 +1008,17 @@ button.slot-card {
   font-size: 0.9rem;
 }
 .cart-line input { max-width: 96px; }
+.cart-line-fixed-qty {
+  justify-self: end;
+  min-width: 84px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+  font-weight: 700;
+  text-align: center;
+}
 
 .admin-table {
   width: 100%;
