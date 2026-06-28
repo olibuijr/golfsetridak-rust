@@ -2599,7 +2599,7 @@ fn tournaments_page(
             ),
             (
                 "meta_description".into(),
-                Value::Str("Trackman hermimót hjá Golfsetrinu Akureyri.".into()),
+                Value::Str("Mót hjá Golfsetrinu Akureyri.".into()),
             ),
             (
                 "has_tournaments".into(),
