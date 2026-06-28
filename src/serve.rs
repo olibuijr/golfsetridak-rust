@@ -2537,7 +2537,7 @@ fn product_value_from_record(
             "subscriptionValidFrom".into(),
             subscription_year
                 .filter(|year| *year > 0)
-                .map(|year| Value::Str(format!("{year}-05-31")))
+                .map(|year| Value::Str(format!("{year}-05-22")))
                 .unwrap_or(Value::Null),
         ),
         (
