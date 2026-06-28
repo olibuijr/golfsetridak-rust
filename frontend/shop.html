@@ -15,11 +15,22 @@
         <small>Allar vörur</small>
       </a>
       {% for category in categories %}
+      {% if category.selected %}
       <a class="shop-category-card {% if category.selected %}is-active{% endif %}" href="{{ category.href }}">
         <span>Flokkur</span>
         <strong>{{ category.name }}</strong>
         <small>{{ category.productCountLabel }}</small>
       </a>
+      {% endif %}
+      {% endfor %}
+      {% for category in categories %}
+      {% if category.selected %}{% else %}
+      <a class="shop-category-card" href="{{ category.href }}">
+        <span>Flokkur</span>
+        <strong>{{ category.name }}</strong>
+        <small>{{ category.productCountLabel }}</small>
+      </a>
+      {% endif %}
       {% endfor %}
     </nav>
     {% endif %}
