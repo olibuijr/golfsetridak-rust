@@ -69,8 +69,9 @@ fn run(args: &[String]) -> Result<(), String> {
     }
 }
 
-/// Parse flags for `serve`: `--dir`, `--host`, `--port`. Mirrors the framework
-/// CLI's hand-rolled parser to keep the zero-dependency promise.
+/// Parse flags for `serve`: `--dir`, `--host`, `--port`, and deploy metadata
+/// `--name`. Mirrors the framework CLI's hand-rolled parser to keep the
+/// zero-dependency promise.
 fn parse_serve(args: &[String]) -> Result<serve::Config, String> {
     let mut host = "127.0.0.1".to_string();
     let mut port: u16 = 8090;
@@ -86,6 +87,9 @@ fn parse_serve(args: &[String]) -> Result<serve::Config, String> {
                     .map_err(|_| "invalid --port".to_string())?;
             }
             "--dir" => dir = PathBuf::from(next(args, &mut i, "--dir")?),
+            "--name" => {
+                let _ = next(args, &mut i, "--name")?;
+            }
             other => return Err(format!("unknown flag '{other}'")),
         }
         i += 1;

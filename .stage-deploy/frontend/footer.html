@@ -176,11 +176,29 @@
         }
 
         async function requestCart(url, options) {
-          var res = await fetch(url, options || {});
+          var init = options || {};
+          if (!init.credentials) init.credentials = 'same-origin';
+          var res = await fetch(url, init);
           var data = await res.json().catch(function () { return {}; });
           if (!res.ok) throw new Error(data.error || 'Aðgerð tókst ekki');
           if (data && data.cart) applyCart(data.cart);
           return data.cart;
+        }
+
+        async function addItem(item) {
+          try {
+            setStatus('Bæti í körfu...');
+            var cart = await requestCart('/api/cart/items', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(item || {})
+            });
+            setStatus('');
+            return cart;
+          } catch (err) {
+            setStatus(err.message || 'Tókst ekki að bæta í körfu');
+            throw err;
+          }
         }
 
         async function refreshCart() {
@@ -262,6 +280,7 @@
         window.GolfCart = {
           applyCart: applyCart,
           refresh: refreshCart,
+          addItem: addItem,
           open: openCart,
           close: closeCart,
           setQuantity: setQuantity,

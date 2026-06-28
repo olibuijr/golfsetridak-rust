@@ -32,7 +32,7 @@
           </div>
           <footer class="product-footer">
             <strong>{{ product.priceLabel }}</strong>
-            <button class="btn btn-primary" type="button" data-product-id="{{ product.id }}" onclick="addProductToCart(this)">Bæta í körfu</button>
+            <button class="btn btn-primary" type="button" data-add-product-to-cart data-product-id="{{ product.id }}">Bæta í körfu</button>
           </footer>
         </article>
         {% endfor %}
@@ -46,27 +46,26 @@
     </section>
 
     <script>
+      document.querySelectorAll("[data-add-product-to-cart]").forEach((button) => {
+        button.addEventListener("click", () => addProductToCart(button));
+      });
+
       async function addProductToCart(button) {
+        if (button.disabled) return;
         const original = button.textContent;
         button.disabled = true;
         button.textContent = "Bæti við...";
         try {
-          const res = await fetch("/api/cart/items", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ type: "product", refId: button.dataset.productId, quantity: 1 })
+          const cart = await postCartItem({
+            type: "product",
+            refId: button.dataset.productId,
+            quantity: 1
           });
-          if (!res.ok) {
-            const data = await res.json().catch(() => ({}));
-            throw new Error(data.error || "Tókst ekki að bæta í körfu");
-          }
-          const data = await res.json();
-          if (data && data.cart) {
-            if (window.GolfCart && window.GolfCart.applyCart) {
-              window.GolfCart.applyCart(data.cart);
+          if (cart) {
+            if (window.GolfCart && window.GolfCart.open) {
               window.GolfCart.open();
             } else {
-              updateCartSummary(data.cart);
+              updateCartSummary(cart);
             }
           }
           button.textContent = "Komið í körfu";
@@ -76,6 +75,26 @@
           setTimeout(() => { button.textContent = original; button.disabled = false; }, 1800);
         }
       }
+
+      async function postCartItem(payload) {
+        if (window.GolfCart && typeof window.GolfCart.addItem === "function") {
+          return window.GolfCart.addItem(payload);
+        }
+        const res = await fetch("/api/cart/items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload)
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Tókst ekki að bæta í körfu");
+        }
+        const data = await res.json();
+        if (data && data.cart) updateCartSummary(data.cart);
+        return data.cart;
+      }
+
       function updateCartSummary(cart) {
         const count = Number(cart.itemCount || 0);
         document.querySelectorAll("[data-cart-count]").forEach((el) => {

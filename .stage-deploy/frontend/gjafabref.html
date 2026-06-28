@@ -106,25 +106,33 @@
 
         status.textContent = "Set gjafabréf í körfu...";
         try {
-          var res = await fetch("/api/cart/items", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(payload)
-          });
-          var data = await res.json().catch(function () { return {}; });
-          if (!res.ok) {
-            status.textContent = data.error || "Ekki tókst að setja gjafabréf í körfu.";
-            return;
-          }
-          if (data.cart && window.GolfCart && typeof window.GolfCart.applyCart === "function") {
-            window.GolfCart.applyCart(data.cart);
+          var cart = await addGiftCardToCart(payload);
+          if (cart && window.GolfCart && typeof window.GolfCart.applyCart === "function") {
+            window.GolfCart.applyCart(cart);
           }
           status.textContent = "Gjafabréfið er komið í körfu.";
           window.location.href = "/checkout";
         } catch (err) {
-          status.textContent = "Villa kom upp við að setja gjafabréf í körfu.";
+          status.textContent = err.message || "Villa kom upp við að setja gjafabréf í körfu.";
         }
       });
+
+      async function addGiftCardToCart(payload) {
+        if (window.GolfCart && typeof window.GolfCart.addItem === "function") {
+          return window.GolfCart.addItem(payload);
+        }
+        var res = await fetch("/api/cart/items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload)
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) {
+          throw new Error(data.error || "Ekki tókst að setja gjafabréf í körfu.");
+        }
+        return data.cart;
+      }
 
       document.getElementById("gift-lookup-form").addEventListener("submit", async function (e) {
         e.preventDefault();
