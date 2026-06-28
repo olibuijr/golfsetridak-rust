@@ -30,6 +30,7 @@ use akurai_http::{
 use akurai_json::Value;
 use akurai_router::Router;
 use akurai_template::Engine;
+use std::collections::HashSet;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -389,7 +390,7 @@ fn dispatch(
         }
 
         // Home: the server-rendered booking calendar (replaces the placeholder).
-        "/" => calendar_page(root, store, collections_api, auth, req),
+        "/" => calendar_page(root, store, cart_store, collections_api, auth, req),
 
         // Checkout + payment result pages (Phase 3 checkout flow).
         "/checkout" => checkout::page_checkout(root, cart_store, auth, req),
@@ -2655,6 +2656,7 @@ const DAY_NAMES: [&str; 7] = ["Sun", "Mán", "Þri", "Mið", "Fim", "Fös", "Lau
 fn calendar_page(
     root: &Path,
     store: &BookingStore,
+    cart_store: &CartStore,
     api: &CollectionsApi,
     auth: &auth::State,
     req: &Request,
@@ -2664,29 +2666,39 @@ fn calendar_page(
     let days = 14; // anonymous default window
     let rules = collection_pricing_rules(api);
     let availability = store.availability_with(start, days, None, &rules, now);
+    let selected_slots = selected_slot_refs_for_calendar(cart_store, auth, req, now);
 
     let day_values: Vec<Value> = availability
         .iter()
-        .map(|day| {
+        .enumerate()
+        .map(|(index, day)| {
             let weekday = booking::time::parse_date(&day.date)
                 .map(|ms| DAY_NAMES[booking::time::weekday_index(ms)])
                 .unwrap_or("");
             let slots: Vec<Value> = day
                 .slots
                 .iter()
+                .filter(|s| s.status != "past")
                 .map(|s| {
+                    let selected = selected_slots.contains(&s.starts_at);
                     Value::Object(vec![
                         ("hour_label".into(), Value::Str(format!("{:02}:00", s.hour))),
                         ("price_label".into(), Value::Str(format_isk(s.price))),
                         ("status".into(), Value::Str(s.status.clone())),
                         ("available".into(), Value::Bool(s.status == "available")),
+                        ("selected".into(), Value::Bool(selected)),
                         ("starts_at".into(), Value::Str(s.starts_at.clone())),
                     ])
                 })
                 .collect();
+            let has_slots = !slots.is_empty();
+            let expanded = index < 2;
             Value::Object(vec![
                 ("date".into(), Value::Str(day.date.clone())),
                 ("weekday".into(), Value::Str(weekday.into())),
+                ("expanded".into(), Value::Bool(expanded)),
+                ("collapsed".into(), Value::Bool(!expanded)),
+                ("has_slots".into(), Value::Bool(has_slots)),
                 ("slots".into(), Value::Array(slots)),
             ])
         })
@@ -2720,6 +2732,31 @@ fn calendar_page(
         auth,
         req,
     )
+}
+
+fn selected_slot_refs_for_calendar(
+    cart_store: &CartStore,
+    auth: &auth::State,
+    req: &Request,
+    now: i64,
+) -> HashSet<String> {
+    let summary = if let Some(user) = auth.current_user(req) {
+        cart_summary_for_user(cart_store, req, &user.email, now).ok()
+    } else {
+        cart::cookie_cart_id(req).and_then(|id| {
+            cart_store
+                .get_or_create_open(Some(&id), now)
+                .ok()
+                .map(|(summary, _)| summary)
+        })
+    };
+
+    summary
+        .into_iter()
+        .flat_map(|cart| cart.items.into_iter())
+        .filter(|item| item.item_type == "slot")
+        .map(|item| item.ref_id)
+        .collect()
 }
 
 /// Format an ISK amount with thousands separators and a `kr` suffix, matching

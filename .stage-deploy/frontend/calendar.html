@@ -55,17 +55,20 @@
 
       <div class="calendar-days">
         {% for day in calendar_days %}
-        <article class="day-card" id="day-{{ day.date }}">
-          <header class="day-head">
+        <details class="day-card" id="day-{{ day.date }}" {% if day.expanded %}open{% endif %}>
+          <summary class="day-head">
             <span class="day-weekday">{{ day.weekday }}</span>
             <span class="day-date">{{ day.date }}</span>
-          </header>
+            {% if day.collapsed %}<span class="day-toggle" aria-hidden="true"></span>{% endif %}
+          </summary>
+          {% if day.has_slots %}
           <div class="slot-grid">
             {% for slot in day.slots %}
             {% if slot.available %}
-            <button class="slot-card slot-available" type="button" data-add-slot-to-cart data-starts-at="{{ slot.starts_at }}">
+            <button class="slot-card slot-available {% if slot.selected %}slot-selected{% endif %}" type="button" data-add-slot-to-cart data-starts-at="{{ slot.starts_at }}" aria-pressed="{{ slot.selected }}">
               <span class="slot-hour">{{ slot.hour_label }}</span>
               <span class="slot-price">{{ slot.price_label }}</span>
+              {% if slot.selected %}<span class="slot-tag" data-slot-selected-tag>Í körfu</span>{% endif %}
             </button>
             {% else %}
             <div class="slot-card slot-{{ slot.status }}" data-starts-at="{{ slot.starts_at }}">
@@ -75,7 +78,10 @@
             {% endif %}
             {% endfor %}
           </div>
-        </article>
+          {% else %}
+          <p class="day-empty">Engir fleiri tímar í dag.</p>
+          {% endif %}
+        </details>
         {% endfor %}
       </div>
     </section>
@@ -89,10 +95,15 @@
           if (!button || button.disabled) return;
           var startsAt = button.getAttribute("data-starts-at");
           if (!startsAt) return;
+          if (button.classList.contains("slot-selected")) {
+            setStatus("Tíminn er þegar í körfu.");
+            return;
+          }
           button.disabled = true;
           setStatus("Set tíma í körfu...");
           try {
-            await postCartItem({ type: "slot", refId: startsAt, quantity: 1 });
+            var cart = await postCartItem({ type: "slot", refId: startsAt, quantity: 1 });
+            applySelectedSlots(cart);
             setStatus("Tíminn er kominn í körfu.");
           } catch (err) {
             setStatus(err.message || "Tókst ekki að setja tíma í körfu.");
@@ -116,9 +127,40 @@
           }
           return data.cart;
         }
+        function slotRefsFromCart(cart) {
+          var refs = new Set();
+          ((cart && cart.items) || []).forEach(function (item) {
+            if (item && item.type === "slot" && item.refId) refs.add(item.refId);
+          });
+          return refs;
+        }
+        function applySelectedSlots(cart) {
+          var refs = slotRefsFromCart(cart);
+          document.querySelectorAll("[data-add-slot-to-cart]").forEach(function (button) {
+            var selected = refs.has(button.getAttribute("data-starts-at"));
+            button.classList.toggle("slot-selected", selected);
+            button.setAttribute("aria-pressed", selected ? "true" : "false");
+            var tag = button.querySelector("[data-slot-selected-tag]");
+            if (selected && !tag) {
+              tag = document.createElement("span");
+              tag.className = "slot-tag";
+              tag.setAttribute("data-slot-selected-tag", "");
+              tag.textContent = "Í körfu";
+              button.appendChild(tag);
+            } else if (!selected && tag) {
+              tag.remove();
+            }
+          });
+        }
+        document.addEventListener("golfcart:updated", function (event) {
+          applySelectedSlots(event.detail && event.detail.cart);
+        });
         document.querySelectorAll("[data-add-slot-to-cart]").forEach(function (button) {
           button.addEventListener("click", function () { addSlot(button); });
         });
+        if (window.GolfCart && typeof window.GolfCart.refresh === "function") {
+          window.GolfCart.refresh().then(applySelectedSlots).catch(function () {});
+        }
       })();
     </script>
 {% include "footer" %}
