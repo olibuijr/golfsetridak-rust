@@ -501,7 +501,7 @@ body.cart-open .cart-drawer {
   justify-content: center;
   gap: 8px;
   padding: 0.7rem 1.2rem;
-  border-radius: 999px;
+  border-radius: 6px;
   font-weight: 600;
   font-family: var(--font-heading);
   letter-spacing: 0.02em;
