@@ -9,20 +9,21 @@
 
     {% if has_categories %}
     <nav class="shop-categories" aria-label="Vöruflokkar">
-      <a class="shop-category-card {% if has_category_filter %}{% else %}is-active{% endif %}" href="/verslun">
-        <span>Allt</span>
-        <strong>Verslun</strong>
-        <small>Allar vörur</small>
-      </a>
+      {% if has_category_filter %}
       {% for category in categories %}
       {% if category.selected %}
-      <a class="shop-category-card {% if category.selected %}is-active{% endif %}" href="{{ category.href }}">
+      <a class="shop-category-card is-active" href="{{ category.href }}">
         <span>Flokkur</span>
         <strong>{{ category.name }}</strong>
         <small>{{ category.productCountLabel }}</small>
       </a>
       {% endif %}
       {% endfor %}
+      <a class="shop-category-card {% if has_category_filter %}{% else %}is-active{% endif %}" href="/verslun">
+        <span>Allt</span>
+        <strong>Verslun</strong>
+        <small>Allar vörur</small>
+      </a>
       {% for category in categories %}
       {% if category.selected %}{% else %}
       <a class="shop-category-card" href="{{ category.href }}">
@@ -32,6 +33,20 @@
       </a>
       {% endif %}
       {% endfor %}
+      {% else %}
+      <a class="shop-category-card is-active" href="/verslun">
+        <span>Allt</span>
+        <strong>Verslun</strong>
+        <small>Allar vörur</small>
+      </a>
+      {% for category in categories %}
+      <a class="shop-category-card" href="{{ category.href }}">
+        <span>Flokkur</span>
+        <strong>{{ category.name }}</strong>
+        <small>{{ category.productCountLabel }}</small>
+      </a>
+      {% endfor %}
+      {% endif %}
     </nav>
     {% endif %}
 
