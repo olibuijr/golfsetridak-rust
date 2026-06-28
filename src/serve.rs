@@ -2419,6 +2419,7 @@ fn admin_products_page(
                 "products".into(),
                 Value::Array(collection_product_values(api, false)),
             ),
+            ("admin_section".into(), Value::Str("products".into())),
         ],
         auth,
         req,
@@ -2443,6 +2444,7 @@ fn admin_categories_page(
                 "categories".into(),
                 Value::Array(collection_category_values(api)),
             ),
+            ("admin_section".into(), Value::Str("products".into())),
         ],
         auth,
         req,
@@ -2545,6 +2547,7 @@ fn admin_product_form_page(
                 "form_title".into(),
                 Value::Str(if is_edit { "Breyta vöru" } else { "Ný vara" }.into()),
             ),
+            ("admin_section".into(), Value::Str("products".into())),
         ],
         auth,
         req,
@@ -2588,6 +2591,7 @@ fn admin_giftcards_page(
             ),
             ("giftCards".into(), Value::Array(card_values)),
             ("has_cards".into(), Value::Bool(!cards.is_empty())),
+            ("admin_section".into(), Value::Str("giftcards".into())),
         ],
         auth,
         req,
@@ -2599,10 +2603,13 @@ fn admin_giftcard_new_page(root: &Path, auth: &auth::State, req: &Request) -> Re
     render(
         root,
         "admin_giftcard_form",
-        vec![(
-            "page_title".into(),
-            Value::Str("Útgefa gjafabréf — Stjórnborð".into()),
-        )],
+        vec![
+            (
+                "page_title".into(),
+                Value::Str("Útgefa gjafabréf — Stjórnborð".into()),
+            ),
+            ("admin_section".into(), Value::Str("giftcards".into())),
+        ],
         auth,
         req,
     )
@@ -2637,6 +2644,7 @@ fn admin_giftcard_detail_page(
             ("card".into(), giftcard_value(&card)),
             ("redemptions".into(), Value::Array(redemptions)),
             ("has_redemptions".into(), Value::Bool(has_redemptions)),
+            ("admin_section".into(), Value::Str("giftcards".into())),
         ],
         auth,
         req,

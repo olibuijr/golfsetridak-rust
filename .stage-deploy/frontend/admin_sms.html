@@ -5,16 +5,7 @@
         <h1>SMS sniðmát</h1>
         <p class="lede">Skilaboð sem send eru sjálfvirkt við bókanir, kaup og gjafabréf.</p>
       </div>
-      <nav class="admin-nav">
-        <a href="/admin/bookings">Bókanir</a>
-        <a href="/admin/payments">Greiðslur</a>
-        <a href="/admin/users">Notendur</a>
-        <a href="/admin/vorur">Vörur</a>
-        <a href="/admin/sms" class="is-active">SMS</a>
-        <a href="/admin/tilkynningar">Tilkynningar</a>
-        <a href="/admin/settings">Stillingar</a>
-        <a href="/notendahandbok">Notendahandbók</a>
-      </nav>
+      {% include "admin_nav" %}
     </section>
 
     {% if saved %}<p class="admin-banner admin-banner-ok">Sniðmát vistað.</p>{% endif %}

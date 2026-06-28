@@ -5,16 +5,7 @@
         <h1>Greiðslur</h1>
         <p class="lede">Yfirlit yfir millifærslur sem bíða staðfestingar.</p>
       </div>
-      <nav class="admin-nav">
-        <a href="/admin/bookings">Bókanir</a>
-        <a href="/admin/payments" class="is-active">Greiðslur</a>
-        <a href="/admin/users">Notendur</a>
-        <a href="/admin/vorur">Vörur</a>
-        <a href="/admin/sms">SMS</a>
-        <a href="/admin/tilkynningar">Tilkynningar</a>
-        <a href="/admin/settings">Stillingar</a>
-        <a href="/notendahandbok">Notendahandbók</a>
-      </nav>
+      {% include "admin_nav" %}
     </section>
 
     <section class="admin-table-wrap">
@@ -38,6 +29,8 @@
           {% endfor %}
         </tbody>
       </table>
+      {% if no_payments %}
       <p class="muted admin-empty">Engar millifærslur bíða staðfestingar.</p>
+      {% endif %}
     </section>
 {% include "footer" %}

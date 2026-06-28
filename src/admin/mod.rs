@@ -108,6 +108,7 @@ pub fn admin_bookings_page(
             ),
             ("revenue".into(), Value::Int(totals.revenue)),
             ("bookings".into(), Value::Array(rows)),
+            ("admin_section".into(), Value::Str("bookings".into())),
         ],
         auth,
         req,
@@ -156,6 +157,8 @@ pub fn admin_payments_page(
                 Value::Str("Greiðslur — Stjórnborð".into()),
             ),
             ("payments".into(), Value::Array(rows)),
+            ("no_payments".into(), Value::Bool(payments.is_empty())),
+            ("admin_section".into(), Value::Str("payments".into())),
         ],
         auth,
         req,
@@ -204,6 +207,7 @@ pub fn admin_users_page(
             ),
             ("users".into(), Value::Array(users)),
             ("no_users".into(), Value::Bool(no_users)),
+            ("admin_section".into(), Value::Str("users".into())),
         ],
         auth,
         req,
@@ -263,6 +267,7 @@ pub fn admin_settings_page(
         ("admin_email".into(), Value::Str(notify.admin_email)),
         ("admin_phone".into(), Value::Str(notify.admin_phone)),
         ("saved".into(), Value::Bool(saved)),
+        ("admin_section".into(), Value::Str("settings".into())),
     ];
     if let Some(msg) = error {
         extra.push(("error".into(), Value::Str(msg)));
@@ -318,6 +323,7 @@ pub fn admin_sms_page(
         ),
         ("templates".into(), Value::Array(templates)),
         ("saved".into(), Value::Bool(saved)),
+        ("admin_section".into(), Value::Str("sms".into())),
     ];
     if let Some(msg) = error {
         extra.push(("error".into(), Value::Str(msg)));
@@ -341,6 +347,7 @@ pub fn admin_announcements_page(
                 Value::Str("Tilkynningar — Stjórnborð".into()),
             ),
             ("announcements".into(), Value::Array(vec![])),
+            ("admin_section".into(), Value::Str("announcements".into())),
         ],
         auth,
         req,

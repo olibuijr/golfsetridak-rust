@@ -823,7 +823,8 @@ button.slot-card {
   display: flex;
   align-items: end;
   justify-content: space-between;
-  gap: 24px;
+  flex-wrap: wrap;
+  gap: 18px 24px;
   padding: 56px 0 34px;
 }
 
@@ -1092,8 +1093,10 @@ button.slot-card {
 /* ---- admin: nav, cards, banners, feed (booking/payment/user/settings pages) */
 .admin-nav {
   display: flex;
+  flex: 1 1 100%;
   flex-wrap: wrap;
   gap: 6px;
+  justify-content: flex-start;
 }
 
 .admin-nav a {
@@ -1752,6 +1755,7 @@ button.slot-card {
 }
 
 .gift-form .gift-theme-option {
+  position: relative;
   display: grid;
   grid-template-columns: 76px minmax(0, 1fr);
   gap: 14px;
@@ -1773,6 +1777,9 @@ button.slot-card {
 
 .gift-theme-option input {
   position: absolute;
+  inset: 0 auto auto 0;
+  width: 1px;
+  height: 1px;
   opacity: 0;
   pointer-events: none;
 }

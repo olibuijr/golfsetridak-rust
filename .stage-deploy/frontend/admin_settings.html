@@ -5,16 +5,7 @@
         <h1>Stillingar</h1>
         <p class="lede">Millifærsluupplýsingar og tilkynningar.</p>
       </div>
-      <nav class="admin-nav">
-        <a href="/admin/bookings">Bókanir</a>
-        <a href="/admin/payments">Greiðslur</a>
-        <a href="/admin/users">Notendur</a>
-        <a href="/admin/vorur">Vörur</a>
-        <a href="/admin/sms">SMS</a>
-        <a href="/admin/tilkynningar">Tilkynningar</a>
-        <a href="/admin/settings" class="is-active">Stillingar</a>
-        <a href="/notendahandbok">Notendahandbók</a>
-      </nav>
+      {% include "admin_nav" %}
     </section>
 
     {% if saved %}<p class="admin-banner admin-banner-ok">Stillingar vistaðar.</p>{% endif %}
