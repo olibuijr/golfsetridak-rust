@@ -1,0 +1,73 @@
+{% include "header" %}
+    <section class="admin-head">
+      <div>
+        <span class="eyebrow">Stjórnborð</span>
+        <h1>{{ form_title }}</h1>
+        <p class="lede">Skráðu mót fyrir golfherminn með verði, lýsingu, reglum, tímasetningu, þátttakendafjölda og verðlaunum.</p>
+      </div>
+      <a class="btn btn-secondary" href="/admin/mot">Til baka í mót</a>
+      {% include "admin_nav" %}
+    </section>
+
+    <section class="admin-form-card">
+      <form class="admin-form tournament-admin-form" id="tournament-form">
+        <div class="form-grid">
+          <label>Heiti móts<input name="title" value="{{ tournament.title }}" required /></label>
+          <label>Slóð<input name="slug" value="{{ tournament.slug }}" placeholder="vor-mot-2026" /></label>
+        </div>
+        <label>Lýsing<textarea name="description" rows="4">{{ tournament.description }}</textarea></label>
+        <div class="form-grid form-grid-three">
+          <label>Verð (ISK)<input name="price" type="number" min="0" value="{{ tournament.price }}" required /></label>
+          <label>Lágmarksfjöldi<input name="minParticipants" type="number" min="0" value="{{ tournament.minParticipants }}" /></label>
+          <label>Hámarksfjöldi<input name="maxParticipants" type="number" min="0" value="{{ tournament.maxParticipants }}" /></label>
+        </div>
+        <div class="form-grid form-grid-three">
+          <label>Upphafsdagur<input name="startDate" type="date" value="{{ tournament.startDate }}" /></label>
+          <label>Lokadagur<input name="endDate" type="date" value="{{ tournament.endDate }}" /></label>
+          <label>Tími<input name="startTime" value="{{ tournament.startTime }}" placeholder="18:00" /></label>
+        </div>
+        <label>Fyrirkomulag<textarea name="schedule" rows="3">{{ tournament.schedule }}</textarea></label>
+        <label>Reglur<textarea name="rules" rows="4">{{ tournament.rules }}</textarea></label>
+        <label>Verðlaun<textarea name="rewards" rows="3">{{ tournament.rewards }}</textarea></label>
+        <label class="checkbox-row"><input name="active" type="checkbox" {% if tournament.active %}checked{% endif %} /> Mót er virkt og birtist opinberlega</label>
+        <button class="btn btn-primary" type="submit">Vista mót</button>
+      </form>
+    </section>
+
+    <script>
+      const form = document.getElementById("tournament-form");
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const fd = new FormData(form);
+        const payload = {
+          title: String(fd.get("title") || ""),
+          slug: String(fd.get("slug") || ""),
+          description: String(fd.get("description") || ""),
+          price: Number(fd.get("price") || 0),
+          minParticipants: Number(fd.get("minParticipants") || 0),
+          maxParticipants: Number(fd.get("maxParticipants") || 0),
+          startDate: String(fd.get("startDate") || ""),
+          endDate: String(fd.get("endDate") || ""),
+          startTime: String(fd.get("startTime") || ""),
+          schedule: String(fd.get("schedule") || ""),
+          rules: String(fd.get("rules") || ""),
+          rewards: String(fd.get("rewards") || ""),
+          active: fd.get("active") === "on"
+        };
+        const isEdit = {% if is_edit %}true{% else %}false{% endif %};
+        const id = "{{ tournament.id }}";
+        const res = await fetch(isEdit ? "/api/admin/tournaments/" + encodeURIComponent(id) : "/api/admin/tournaments", {
+          method: isEdit ? "PUT" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          alert(data.error || "Tókst ekki að vista mót");
+          return;
+        }
+        const tournamentId = data.tournament && data.tournament.id ? data.tournament.id : id;
+        location.href = "/admin/mot/" + encodeURIComponent(tournamentId);
+      });
+    </script>
+{% include "footer" %}

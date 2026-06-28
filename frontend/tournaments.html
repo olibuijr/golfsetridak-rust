@@ -1,0 +1,57 @@
+{% include "header" %}
+    <section class="tournament-hero">
+      <div>
+        <span class="eyebrow">Mót</span>
+        <h1>Hermimót</h1>
+        <p class="lede">Taktu þátt í Trackman-mótum í Golfsetrinu. Hér má sjá verð, reglur, tímasetningar, þátttakendafjölda og verðlaun.</p>
+      </div>
+      <a class="btn btn-primary" href="/">Bóka æfingatíma</a>
+    </section>
+
+    <section class="tournament-grid" aria-label="Mót">
+      {% if has_tournaments %}
+      {% for tournament in tournaments %}
+      <article class="tournament-card" id="mot-{{ tournament.slug }}">
+        <header class="tournament-card-head">
+          <div>
+            <span class="tournament-status">{{ tournament.statusLabel }}</span>
+            <h2>{{ tournament.title }}</h2>
+          </div>
+          <strong class="tournament-price">{{ tournament.priceLabel }}</strong>
+        </header>
+        {% if tournament.description %}<p class="tournament-description">{{ tournament.description }}</p>{% endif %}
+        <dl class="tournament-facts">
+          <div><dt>Dagsetningar</dt><dd>{{ tournament.dateLabel }}</dd></div>
+          <div><dt>Tími</dt><dd>{{ tournament.timeLabel }}</dd></div>
+          <div><dt>Þátttakendur</dt><dd>{{ tournament.participantLabel }}</dd></div>
+        </dl>
+        <div class="tournament-detail-grid">
+          {% if tournament.rules %}
+          <section>
+            <h3>Reglur</h3>
+            <p>{{ tournament.rules }}</p>
+          </section>
+          {% endif %}
+          {% if tournament.schedule %}
+          <section>
+            <h3>Fyrirkomulag</h3>
+            <p>{{ tournament.schedule }}</p>
+          </section>
+          {% endif %}
+          {% if tournament.rewards %}
+          <section>
+            <h3>Verðlaun</h3>
+            <p>{{ tournament.rewards }}</p>
+          </section>
+          {% endif %}
+        </div>
+      </article>
+      {% endfor %}
+      {% else %}
+      <div class="empty-state tournament-empty">
+        <h2>Engin mót skráð</h2>
+        <p>Næstu hermimót birtast hér þegar þau hafa verið sett upp.</p>
+      </div>
+      {% endif %}
+    </section>
+{% include "footer" %}

@@ -307,6 +307,22 @@ fn dispatch(
             }
             api_admin_upload(root, req)
         }
+        "/api/admin/tournaments" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_admin_tournaments(collections_api, req, None)
+        }
+        p if p.starts_with("/api/admin/tournaments/") => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return json(401, &error_value("Unauthorized"));
+            }
+            api_admin_tournaments(
+                collections_api,
+                req,
+                Some(slug_of(p, "/api/admin/tournaments/")),
+            )
+        }
         "/api/shop/products" => api_shop_products(collections_api, req),
         "/api/shop/categories" => api_shop_categories(collections_api, req),
         "/api/admin/shop/products" => {
@@ -411,6 +427,7 @@ fn dispatch(
         "/skilmalar" => legal(root, "skilmalar", auth, req),
         "/um-okkur" => about(root, auth, req),
         "/verslun" => shop_page(root, collections_api, cart_store, auth, req),
+        "/mot" => tournaments_page(root, collections_api, auth, req),
         "/my" => my_page(root, store, auth, req),
         "/my/verslun" => shop_page(root, collections_api, cart_store, auth, req),
         "/my/verslun/karfa" => cart_page(root, cart_store, req, auth),
@@ -419,6 +436,30 @@ fn dispatch(
                 return Response::new(302).with_header("Location", "/login");
             }
             admin_products_page(root, collections_api, auth, req)
+        }
+        "/admin/mot" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            admin_tournaments_page(root, collections_api, auth, req)
+        }
+        "/admin/mot/nytt" => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            admin_tournament_form_page(root, collections_api, None, auth, req)
+        }
+        p if p.starts_with("/admin/mot/") => {
+            if !auth.require_role(req, auth::Role::Admin) {
+                return Response::new(302).with_header("Location", "/login");
+            }
+            admin_tournament_form_page(
+                root,
+                collections_api,
+                Some(slug_of(p, "/admin/mot/")),
+                auth,
+                req,
+            )
         }
         "/admin/vorur/flokkar" => {
             if !auth.require_role(req, auth::Role::Admin) {
@@ -1321,6 +1362,228 @@ fn category_slug_taken(api: &CollectionsApi, slug: &str, except_id: Option<i64>)
     api.records("product_categories").iter().any(|c| {
         c.get("slug").and_then(Value::as_str) == Some(slug)
             && c.get("id").and_then(Value::as_i64) != except_id
+    })
+}
+
+// Admin tournament CRUD on the COLLECTIONS `tournaments` collection.
+fn api_admin_tournaments(api: &CollectionsApi, req: &Request, path_id: Option<&str>) -> Response {
+    match req.method {
+        Method::Get => {
+            if let Some(id) = path_id {
+                let Ok(id) = id.parse::<i64>() else {
+                    return json(400, &error_value("invalid id"));
+                };
+                return match api.record_by_id("tournaments", id) {
+                    Some(record) => json(
+                        200,
+                        &Value::Object(vec![(
+                            "tournament".into(),
+                            tournament_value_from_record(&record),
+                        )]),
+                    ),
+                    None => json(404, &error_value("not found")),
+                };
+            }
+            json(
+                200,
+                &Value::Object(vec![(
+                    "tournaments".into(),
+                    Value::Array(collection_tournament_values(api, false)),
+                )]),
+            )
+        }
+        Method::Post => {
+            let body = match body_json(req) {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            let Some(title) = str_field(&body, "title") else {
+                return json(400, &error_value("title required"));
+            };
+            let Some(price) = int_field(&body, "price").filter(|p| *p >= 0) else {
+                return json(400, &error_value("valid price required"));
+            };
+            let slug = match str_field(&body, "slug") {
+                Some(s) => shop::slugify(s),
+                None => shop::slugify(title),
+            };
+            if slug.is_empty() {
+                return json(400, &error_value("valid slug required"));
+            }
+            if tournament_slug_taken(api, &slug, None) {
+                return json(400, &error_value("slug already exists"));
+            }
+            let min_participants = int_field(&body, "minParticipants")
+                .or_else(|| int_field(&body, "min_participants"))
+                .unwrap_or(1);
+            let max_participants = int_field(&body, "maxParticipants")
+                .or_else(|| int_field(&body, "max_participants"))
+                .unwrap_or(0);
+            if min_participants < 0 || max_participants < 0 {
+                return json(400, &error_value("participant counts must be positive"));
+            }
+            if max_participants > 0 && min_participants > max_participants {
+                return json(400, &error_value("min participants cannot exceed max"));
+            }
+            let now = now_ms();
+            let mut input = vec![
+                ("title".into(), Value::Str(title.to_string())),
+                ("slug".into(), Value::Str(slug)),
+                ("price".into(), Value::Int(price)),
+                ("min_participants".into(), Value::Int(min_participants)),
+                ("max_participants".into(), Value::Int(max_participants)),
+                (
+                    "active".into(),
+                    Value::Bool(bool_field(&body, "active").unwrap_or(true)),
+                ),
+                ("created_at".into(), Value::Int(now)),
+                ("updated_at".into(), Value::Int(now)),
+            ];
+            push_tournament_text_fields(&body, &mut input);
+            match api.create_record("tournaments", Value::Object(input)) {
+                Ok(record) => json(
+                    201,
+                    &Value::Object(vec![(
+                        "tournament".into(),
+                        tournament_value_from_record(&record),
+                    )]),
+                ),
+                Err((status, msg)) => json(status, &error_value(&msg)),
+            }
+        }
+        Method::Put => {
+            let body = match body_json(req) {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            let query_id = query_id(req);
+            let Some(id) = path_id
+                .or_else(|| str_field(&body, "id"))
+                .or(query_id.as_deref())
+            else {
+                return json(400, &error_value("id required"));
+            };
+            let Ok(id) = id.parse::<u64>() else {
+                return json(400, &error_value("invalid id"));
+            };
+            let mut patch: Vec<(String, Value)> = Vec::new();
+            if let Some(title) = str_field(&body, "title") {
+                patch.push(("title".into(), Value::Str(title.to_string())));
+            }
+            if field_present(&body, "slug") {
+                let raw = str_field(&body, "slug").or_else(|| str_field(&body, "title"));
+                let slug = raw.map(shop::slugify).unwrap_or_default();
+                if slug.is_empty() {
+                    return json(400, &error_value("valid slug required"));
+                }
+                if tournament_slug_taken(api, &slug, Some(id as i64)) {
+                    return json(400, &error_value("slug already exists"));
+                }
+                patch.push(("slug".into(), Value::Str(slug)));
+            }
+            if let Some(price) = int_field(&body, "price") {
+                if price < 0 {
+                    return json(400, &error_value("valid price required"));
+                }
+                patch.push(("price".into(), Value::Int(price)));
+            }
+            if let Some(min) =
+                int_field(&body, "minParticipants").or_else(|| int_field(&body, "min_participants"))
+            {
+                if min < 0 {
+                    return json(400, &error_value("participant counts must be positive"));
+                }
+                patch.push(("min_participants".into(), Value::Int(min)));
+            }
+            if let Some(max) =
+                int_field(&body, "maxParticipants").or_else(|| int_field(&body, "max_participants"))
+            {
+                if max < 0 {
+                    return json(400, &error_value("participant counts must be positive"));
+                }
+                patch.push(("max_participants".into(), Value::Int(max)));
+            }
+            push_tournament_patch_text_fields(&body, &mut patch);
+            if let Some(active) = bool_field(&body, "active") {
+                patch.push(("active".into(), Value::Bool(active)));
+            }
+            patch.push(("updated_at".into(), Value::Int(now_ms())));
+            match api.update_record("tournaments", id, Value::Object(patch)) {
+                Ok(Some(record)) => json(
+                    200,
+                    &Value::Object(vec![(
+                        "tournament".into(),
+                        tournament_value_from_record(&record),
+                    )]),
+                ),
+                Ok(None) => json(404, &error_value("not found")),
+                Err((status, msg)) => json(status, &error_value(&msg)),
+            }
+        }
+        Method::Delete => {
+            let body = body_json(req).ok();
+            let query_id = query_id(req);
+            let Some(id) = path_id
+                .or_else(|| body.as_ref().and_then(|b| str_field(b, "id")))
+                .or(query_id.as_deref())
+            else {
+                return json(400, &error_value("id required"));
+            };
+            let Ok(id) = id.parse::<u64>() else {
+                return json(400, &error_value("invalid id"));
+            };
+            match api.delete_record("tournaments", id) {
+                Ok(true) => json(200, &Value::Object(vec![("ok".into(), Value::Bool(true))])),
+                Ok(false) => json(404, &error_value("not found")),
+                Err((status, msg)) => json(status, &error_value(&msg)),
+            }
+        }
+        _ => json(405, &error_value("method not allowed")),
+    }
+}
+
+fn push_tournament_text_fields(body: &Value, input: &mut Vec<(String, Value)>) {
+    for (source, target) in [
+        ("description", "description"),
+        ("rules", "rules"),
+        ("schedule", "schedule"),
+        ("startDate", "start_date"),
+        ("start_date", "start_date"),
+        ("endDate", "end_date"),
+        ("end_date", "end_date"),
+        ("startTime", "start_time"),
+        ("start_time", "start_time"),
+        ("rewards", "rewards"),
+    ] {
+        if let Some(value) = str_field(body, source) {
+            input.push((target.into(), Value::Str(value.to_string())));
+        }
+    }
+}
+
+fn push_tournament_patch_text_fields(body: &Value, patch: &mut Vec<(String, Value)>) {
+    for (source, target) in [
+        ("description", "description"),
+        ("rules", "rules"),
+        ("schedule", "schedule"),
+        ("startDate", "start_date"),
+        ("start_date", "start_date"),
+        ("endDate", "end_date"),
+        ("end_date", "end_date"),
+        ("startTime", "start_time"),
+        ("start_time", "start_time"),
+        ("rewards", "rewards"),
+    ] {
+        if field_present(body, source) {
+            patch.push((target.into(), opt_str_value(str_field(body, source))));
+        }
+    }
+}
+
+fn tournament_slug_taken(api: &CollectionsApi, slug: &str, except_id: Option<i64>) -> bool {
+    api.records("tournaments").iter().any(|t| {
+        t.get("slug").and_then(Value::as_str) == Some(slug)
+            && t.get("id").and_then(Value::as_i64) != except_id
     })
 }
 
@@ -2315,6 +2578,237 @@ fn collection_user_fixed_price(api: &CollectionsApi, user_id: &str) -> Option<i6
     api.find_by("users", "email", user_id)
         .or_else(|| api.find_by("users", "phone", user_id))
         .and_then(|u| u.get("fixed_price").and_then(Value::as_i64))
+}
+
+// ---- tournament pages -----------------------------------------------------
+
+fn tournaments_page(
+    root: &Path,
+    api: &CollectionsApi,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
+    let tournaments = collection_tournament_values(api, true);
+    render(
+        root,
+        "tournaments",
+        vec![
+            (
+                "page_title".into(),
+                Value::Str("Mót — Golfsetrið Akureyri".into()),
+            ),
+            (
+                "meta_description".into(),
+                Value::Str("Trackman hermimót hjá Golfsetrinu Akureyri.".into()),
+            ),
+            (
+                "has_tournaments".into(),
+                Value::Bool(!tournaments.is_empty()),
+            ),
+            ("tournaments".into(), Value::Array(tournaments)),
+        ],
+        auth,
+        req,
+    )
+}
+
+fn admin_tournaments_page(
+    root: &Path,
+    api: &CollectionsApi,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
+    let tournaments = collection_tournament_values(api, false);
+    render(
+        root,
+        "admin_tournaments",
+        vec![
+            ("page_title".into(), Value::Str("Mót — Stjórnborð".into())),
+            (
+                "has_tournaments".into(),
+                Value::Bool(!tournaments.is_empty()),
+            ),
+            ("tournaments".into(), Value::Array(tournaments)),
+            ("admin_section".into(), Value::Str("tournaments".into())),
+        ],
+        auth,
+        req,
+    )
+}
+
+fn admin_tournament_form_page(
+    root: &Path,
+    api: &CollectionsApi,
+    id: Option<&str>,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
+    let tournament = match id {
+        Some(id) => match id
+            .parse::<i64>()
+            .ok()
+            .and_then(|n| api.record_by_id("tournaments", n))
+        {
+            Some(tournament) => Some(tournament),
+            None => return not_found_page(root, auth, req),
+        },
+        None => None,
+    };
+    let is_edit = tournament.is_some();
+    let tournament_value = tournament
+        .as_ref()
+        .map(tournament_value_from_record)
+        .unwrap_or_else(empty_tournament_value);
+    render(
+        root,
+        "admin_tournament_form",
+        vec![
+            (
+                "page_title".into(),
+                Value::Str(if is_edit {
+                    "Breyta móti — Stjórnborð".into()
+                } else {
+                    "Nýtt mót — Stjórnborð".into()
+                }),
+            ),
+            ("tournament".into(), tournament_value),
+            ("is_edit".into(), Value::Bool(is_edit)),
+            (
+                "form_title".into(),
+                Value::Str(
+                    if is_edit {
+                        "Breyta móti"
+                    } else {
+                        "Nýtt mót"
+                    }
+                    .into(),
+                ),
+            ),
+            ("admin_section".into(), Value::Str("tournaments".into())),
+        ],
+        auth,
+        req,
+    )
+}
+
+fn collection_tournament_values(api: &CollectionsApi, active_only: bool) -> Vec<Value> {
+    let mut records = api.records("tournaments");
+    records.sort_by(|a, b| {
+        let key = |v: &Value| {
+            (
+                v.get("start_date")
+                    .and_then(Value::as_str)
+                    .unwrap_or("9999-99-99")
+                    .to_string(),
+                v.get("start_time")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+                v.get("title")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string(),
+            )
+        };
+        key(a).cmp(&key(b))
+    });
+    records
+        .into_iter()
+        .filter(|t| !active_only || t.get("active").and_then(Value::as_bool).unwrap_or(true))
+        .map(|t| tournament_value_from_record(&t))
+        .collect()
+}
+
+fn tournament_value_from_record(t: &Value) -> Value {
+    let s = |k: &str| t.get(k).and_then(Value::as_str).unwrap_or("").to_string();
+    let id = t.get("id").and_then(Value::as_i64).unwrap_or(0);
+    let price = t.get("price").and_then(Value::as_i64).unwrap_or(0);
+    let min_participants = t
+        .get("min_participants")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let max_participants = t
+        .get("max_participants")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let active = t.get("active").and_then(Value::as_bool).unwrap_or(true);
+    let start_date = s("start_date");
+    let end_date = s("end_date");
+    let start_time = s("start_time");
+    let date_label = if !start_date.is_empty() && !end_date.is_empty() && start_date != end_date {
+        format!("{start_date} til {end_date}")
+    } else if !start_date.is_empty() {
+        start_date.clone()
+    } else {
+        "Dagsetning auglýst síðar".into()
+    };
+    let time_label = if start_time.is_empty() {
+        "Tími auglýstur síðar".into()
+    } else {
+        start_time.clone()
+    };
+    let participant_label = match (min_participants, max_participants) {
+        (0, 0) => "Opinn fjöldi".to_string(),
+        (min, 0) => format!("Lágmark {min} þátttakendur"),
+        (0, max) => format!("Hámark {max} þátttakendur"),
+        (min, max) => format!("{min}-{max} þátttakendur"),
+    };
+    Value::Object(vec![
+        ("id".into(), Value::Int(id)),
+        ("title".into(), Value::Str(s("title"))),
+        ("slug".into(), Value::Str(s("slug"))),
+        (
+            "description".into(),
+            opt_str_value(t.get("description").and_then(Value::as_str)),
+        ),
+        (
+            "rules".into(),
+            opt_str_value(t.get("rules").and_then(Value::as_str)),
+        ),
+        (
+            "schedule".into(),
+            opt_str_value(t.get("schedule").and_then(Value::as_str)),
+        ),
+        ("startDate".into(), Value::Str(start_date)),
+        ("endDate".into(), Value::Str(end_date)),
+        ("startTime".into(), Value::Str(start_time)),
+        ("dateLabel".into(), Value::Str(date_label)),
+        ("timeLabel".into(), Value::Str(time_label)),
+        ("price".into(), Value::Int(price)),
+        ("priceLabel".into(), Value::Str(format_isk(price))),
+        ("minParticipants".into(), Value::Int(min_participants)),
+        ("maxParticipants".into(), Value::Int(max_participants)),
+        ("participantLabel".into(), Value::Str(participant_label)),
+        (
+            "rewards".into(),
+            opt_str_value(t.get("rewards").and_then(Value::as_str)),
+        ),
+        ("active".into(), Value::Bool(active)),
+        ("inactive".into(), Value::Bool(!active)),
+        (
+            "statusLabel".into(),
+            Value::Str(if active { "Virkt" } else { "Óvirkt" }.into()),
+        ),
+    ])
+}
+
+fn empty_tournament_value() -> Value {
+    Value::Object(vec![
+        ("id".into(), Value::Str(String::new())),
+        ("title".into(), Value::Str(String::new())),
+        ("slug".into(), Value::Str(String::new())),
+        ("description".into(), Value::Str(String::new())),
+        ("rules".into(), Value::Str(String::new())),
+        ("schedule".into(), Value::Str(String::new())),
+        ("startDate".into(), Value::Str(String::new())),
+        ("endDate".into(), Value::Str(String::new())),
+        ("startTime".into(), Value::Str(String::new())),
+        ("price".into(), Value::Str(String::new())),
+        ("minParticipants".into(), Value::Int(1)),
+        ("maxParticipants".into(), Value::Str(String::new())),
+        ("rewards".into(), Value::Str(String::new())),
+        ("active".into(), Value::Bool(true)),
+    ])
 }
 
 // ---- shop + cart pages ----------------------------------------------------

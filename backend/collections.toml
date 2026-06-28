@@ -196,6 +196,76 @@ name = "pricing_rules"
   name = "active"        # default true
   type = "bool"
 
+# ---- Simulator tournaments -----------------------------------------------
+[[collection]]
+name = "tournaments"
+
+  [[collection.field]]
+  name = "title"
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "slug"          # UNIQUE in source intent; enforced by admin API
+  type = "text"
+  required = true
+
+  [[collection.field]]
+  name = "description"
+  type = "text"
+  embed = true
+
+  [[collection.field]]
+  name = "rules"
+  type = "text"
+  embed = true
+
+  [[collection.field]]
+  name = "schedule"
+  type = "text"
+
+  [[collection.field]]
+  name = "start_date"    # date string
+  type = "text"
+
+  [[collection.field]]
+  name = "end_date"      # date string
+  type = "text"
+
+  [[collection.field]]
+  name = "start_time"    # display/local time string
+  type = "text"
+
+  [[collection.field]]
+  name = "price"         # ISK, integer
+  type = "int"
+  required = true
+
+  [[collection.field]]
+  name = "min_participants"
+  type = "int"
+
+  [[collection.field]]
+  name = "max_participants"
+  type = "int"
+
+  [[collection.field]]
+  name = "rewards"
+  type = "text"
+  embed = true
+
+  [[collection.field]]
+  name = "active"        # default true
+  type = "bool"
+
+  [[collection.field]]
+  name = "created_at"
+  type = "int"
+
+  [[collection.field]]
+  name = "updated_at"
+  type = "int"
+
 # ---- Gift cards (issuance catalog) --------------------------------------
 # NOTE: `balance` decrements on redemption — that mutation is transaction-backed
 # in Phase 3 (gift_card_redemptions). The card record itself is catalog-like.

@@ -1,0 +1,61 @@
+{% include "header" %}
+    <section class="admin-head">
+      <div>
+        <span class="eyebrow">Stjórnborð</span>
+        <h1>Mót</h1>
+        <p class="lede">Stjórna hermimótum, verði, reglum, dagsetningum, þátttakendafjölda og verðlaunum.</p>
+      </div>
+      <div class="btn-row">
+        <a class="btn btn-primary" href="/admin/mot/nytt">Nýtt mót</a>
+      </div>
+      {% include "admin_nav" %}
+    </section>
+
+    <section class="admin-table-wrap">
+      {% if has_tournaments %}
+      <table class="admin-table">
+        <thead>
+          <tr>
+            <th>Mót</th>
+            <th>Dagsetningar</th>
+            <th>Þátttakendur</th>
+            <th>Verð</th>
+            <th>Staða</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for tournament in tournaments %}
+          <tr>
+            <td>
+              <strong>{{ tournament.title }}</strong>
+              {% if tournament.description %}<span>{{ tournament.description }}</span>{% endif %}
+            </td>
+            <td>{{ tournament.dateLabel }}<span>{{ tournament.timeLabel }}</span></td>
+            <td>{{ tournament.participantLabel }}</td>
+            <td>{{ tournament.priceLabel }}</td>
+            <td>{% if tournament.active %}<span class="status-pill">Virkt</span>{% else %}<span class="status-pill status-muted">Óvirkt</span>{% endif %}</td>
+            <td class="table-actions">
+              <a class="btn btn-secondary" href="/admin/mot/{{ tournament.id }}">Breyta</a>
+              <button class="btn btn-secondary" type="button" onclick="deleteTournament('{{ tournament.id }}')">Eyða</button>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-state">
+        <h2>Engin mót enn</h2>
+        <p>Skráðu fyrsta mótið til að birta það á Mót-síðunni.</p>
+      </div>
+      {% endif %}
+    </section>
+
+    <script>
+      async function deleteTournament(id) {
+        if (!confirm("Eyða þessu móti?")) return;
+        await fetch("/api/admin/tournaments/" + encodeURIComponent(id), { method: "DELETE" });
+        location.reload();
+      }
+    </script>
+{% include "footer" %}
