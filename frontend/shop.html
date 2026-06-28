@@ -7,50 +7,32 @@
       </div>
     </section>
 
-    {% if has_categories %}
-    <nav class="shop-categories" aria-label="Vöruflokkar">
-      {% if has_category_filter %}
-      {% for category in categories %}
-      {% if category.selected %}
-      <a class="shop-category-card is-active" href="{{ category.href }}">
-        <span>Flokkur</span>
-        <strong>{{ category.name }}</strong>
-        <small>{{ category.productCountLabel }}</small>
-      </a>
-      {% endif %}
-      {% endfor %}
-      <a class="shop-category-card {% if has_category_filter %}{% else %}is-active{% endif %}" href="/verslun">
-        <span>Allt</span>
-        <strong>Verslun</strong>
-        <small>Allar vörur</small>
-      </a>
-      {% for category in categories %}
-      {% if category.selected %}{% else %}
-      <a class="shop-category-card" href="{{ category.href }}">
-        <span>Flokkur</span>
-        <strong>{{ category.name }}</strong>
-        <small>{{ category.productCountLabel }}</small>
-      </a>
-      {% endif %}
-      {% endfor %}
-      {% else %}
-      <a class="shop-category-card is-active" href="/verslun">
-        <span>Allt</span>
-        <strong>Verslun</strong>
-        <small>Allar vörur</small>
-      </a>
-      {% for category in categories %}
-      <a class="shop-category-card" href="{{ category.href }}">
-        <span>Flokkur</span>
-        <strong>{{ category.name }}</strong>
-        <small>{{ category.productCountLabel }}</small>
-      </a>
-      {% endfor %}
-      {% endif %}
-    </nav>
-    {% endif %}
-
     <section class="shop-layout">
+      {% if has_categories %}
+      <aside class="shop-filter-panel" aria-label="Vöruflokkar">
+        <div class="shop-filter-mobile">
+          <label for="shop-category-select">Vöruflokkur</label>
+          <select id="shop-category-select" data-shop-category-select>
+            <option value="/verslun" {% if has_category_filter %}{% else %}selected{% endif %}>Allar vörur</option>
+            {% for category in categories %}
+            <option value="{{ category.href }}" {% if category.selected %}selected{% endif %}>{{ category.name }} · {{ category.productCountLabel }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <nav class="shop-categories" aria-label="Vöruflokkar">
+          <a class="shop-category-link {% if has_category_filter %}{% else %}is-active{% endif %}" href="/verslun">
+            <span>Allt</span>
+            <strong>Verslun</strong>
+          </a>
+          {% for category in categories %}
+          <a class="shop-category-link {% if category.selected %}is-active{% endif %}" href="{{ category.href }}">
+            <span>{{ category.productCountLabel }}</span>
+            <strong>{{ category.name }}</strong>
+          </a>
+          {% endfor %}
+        </nav>
+      </aside>
+      {% endif %}
       <div class="product-grid">
         {% if products %}
         {% for product in products %}
@@ -95,6 +77,12 @@
       document.querySelectorAll("[data-add-product-to-cart]").forEach((button) => {
         button.addEventListener("click", () => addProductToCart(button));
       });
+      const categorySelect = document.querySelector("[data-shop-category-select]");
+      if (categorySelect) {
+        categorySelect.addEventListener("change", () => {
+          if (categorySelect.value) window.location.href = categorySelect.value;
+        });
+      }
 
       async function addProductToCart(button) {
         if (button.disabled) return;
