@@ -56,18 +56,11 @@
         button.disabled = true;
         button.textContent = "Bæti við...";
         try {
-          const cart = await postCartItem({
+          await postCartItem({
             type: "product",
             refId: button.dataset.productId,
             quantity: 1
           });
-          if (cart) {
-            if (window.GolfCart && window.GolfCart.open) {
-              window.GolfCart.open();
-            } else {
-              updateCartSummary(cart);
-            }
-          }
           button.textContent = "Komið í körfu";
           setTimeout(() => { button.textContent = original; button.disabled = false; }, 1200);
         } catch (err) {

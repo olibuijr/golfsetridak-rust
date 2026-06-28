@@ -92,10 +92,7 @@
           button.disabled = true;
           setStatus("Set tíma í körfu...");
           try {
-            var cart = await postCartItem({ type: "slot", refId: startsAt, quantity: 1 });
-            if (cart && window.GolfCart && typeof window.GolfCart.open === "function") {
-              window.GolfCart.open();
-            }
+            await postCartItem({ type: "slot", refId: startsAt, quantity: 1 });
             setStatus("Tíminn er kominn í körfu.");
           } catch (err) {
             setStatus(err.message || "Tókst ekki að setja tíma í körfu.");

@@ -30,10 +30,7 @@
         btn.disabled = true;
         status.textContent = "Set tíma í körfu...";
         try {
-          var cart = await postCartItem({ type: "slot", refId: "{{ slot_iso }}", quantity: 1 });
-          if (cart && window.GolfCart && typeof window.GolfCart.open === "function") {
-            window.GolfCart.open();
-          }
+          await postCartItem({ type: "slot", refId: "{{ slot_iso }}", quantity: 1 });
           status.textContent = "Tíminn er kominn í körfu.";
           btn.textContent = "Komið í körfu";
           window.setTimeout(function () {
