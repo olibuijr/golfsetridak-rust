@@ -127,7 +127,7 @@
             main.className = 'cart-drawer-line-main';
             var meta = document.createElement('p');
             meta.className = 'cart-drawer-line-meta';
-            meta.textContent = typeLabel(item.type);
+            meta.textContent = item.typeLabel || typeLabel(item.type);
             var title = document.createElement('h3');
             title.textContent = item.nameSnapshot || 'Vara';
             var price = document.createElement('p');

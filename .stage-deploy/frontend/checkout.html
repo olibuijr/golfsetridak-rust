@@ -11,7 +11,7 @@
         {% for item in cart.items %}
         <article class="cart-line">
           <div>
-            <p class="cart-line-type">{{ item.type }}</p>
+            <p class="cart-line-type">{{ item.typeLabel }}</p>
             <h2>{{ item.nameSnapshot }}</h2>
             <p>{{ item.unitPriceLabel }} × {{ item.quantity }}</p>
           </div>
@@ -35,8 +35,11 @@
       {% else %}
       <div class="empty-state">
         <h2>Karfan er tóm</h2>
-        <p>Bættu vöru í körfu áður en þú greiðir.</p>
-        <a class="btn btn-primary" href="/verslun">Fara í verslun</a>
+        <p>Veldu lausan tíma eða bættu vöru í körfu áður en þú greiðir.</p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="/">Velja tíma</a>
+          <a class="btn btn-secondary" href="/verslun">Fara í verslun</a>
+        </div>
       </div>
       {% endif %}
     </section>
@@ -49,6 +52,7 @@
           const res = await fetch("/api/cart/checkout", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
             body: JSON.stringify({ paymentMethod: method }),
           });
           const data = await res.json().catch(() => ({}));

@@ -704,9 +704,16 @@ body.cart-open .cart-drawer {
   text-align: center;
   color: var(--muted);
   font-size: 0.95rem;
-  margin: 0 0 24px;
+  margin: 0 0 8px;
 }
 .calendar-note a { color: var(--brand-hover); }
+.calendar-status {
+  min-height: 1.25rem;
+  margin: 0 0 24px;
+  text-align: center;
+  color: var(--brand-hover);
+  font-size: 0.95rem;
+}
 
 .calendar-days { display: grid; gap: 20px; }
 
@@ -748,8 +755,13 @@ body.cart-open .cart-drawer {
   border-radius: var(--radius);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
+  color: inherit;
+  font: inherit;
   min-height: 56px;
   text-align: center;
+}
+button.slot-card {
+  width: 100%;
 }
 .slot-hour { font-weight: 600; color: var(--text); }
 .slot-price { font-size: 0.8rem; color: var(--accent); }
@@ -763,6 +775,15 @@ body.cart-open .cart-drawer {
 .slot-available:hover {
   border-color: var(--brand-hover);
   transform: translateY(-1px);
+}
+.slot-available:focus-visible {
+  outline: 2px solid var(--brand-hover);
+  outline-offset: 2px;
+}
+.slot-available:disabled {
+  cursor: wait;
+  opacity: 0.7;
+  transform: none;
 }
 .slot-booked { opacity: 0.55; }
 .slot-booked .slot-hour { color: var(--muted); }

@@ -221,11 +221,15 @@ pub fn login(
     booking_store: &crate::booking::Store,
 ) -> Reply {
     if state.current_user(req).is_some() {
-        return Reply::Response(redirect("/my"));
+        let next = next_from_query(req).unwrap_or_else(|| "/my".to_string());
+        return Reply::Response(redirect(&next));
     }
     let response = match req.method {
         Method::Post => login_submit(state, root, req, booking_store),
-        _ => render_login(root, "", "", false),
+        _ => {
+            let next = next_from_query(req).unwrap_or_default();
+            render_login(root, "", "", false, &next)
+        }
     };
     Reply::Response(response)
 }
@@ -242,9 +246,10 @@ fn login_submit(
         .trim()
         .to_string();
     let code = form::field(&pairs, "code").unwrap_or("").trim().to_string();
+    let next = safe_next(form::field(&pairs, "next")).unwrap_or_default();
 
     if email_raw.is_empty() {
-        return render_login(root, "Sláðu inn netfangið þitt.", "", false);
+        return render_login(root, "Sláðu inn netfangið þitt.", "", false, &next);
     }
     let email = normalize_email(&email_raw);
 
@@ -258,7 +263,8 @@ fn login_submit(
                 // Register in the booking store on first login (idempotent).
                 let _ = booking_store.put_user(&email, None);
                 match state.create_session(&email) {
-                    Ok(id) => redirect("/my").with_header("Set-Cookie", &set_cookie(&id)),
+                    Ok(id) => redirect(if next.is_empty() { "/my" } else { &next })
+                        .with_header("Set-Cookie", &set_cookie(&id)),
                     Err(e) => server_err_raw(&format!("could not start session: {e}")),
                 }
             }
@@ -267,21 +273,24 @@ fn login_submit(
                 "Kóðinn er útrunninn. Biðja um nýjan kóða.",
                 &email,
                 false,
+                &next,
             ),
             Ok(OtpOutcome::TooManyAttempts) => render_login(
                 root,
                 "Of margar tilraunir. Biðja um nýjan kóða.",
                 &email,
                 false,
+                &next,
             ),
             Ok(OtpOutcome::NoCode) => render_login(
                 root,
                 "Enginn kóði í bið. Biðja um kóða fyrst.",
                 &email,
                 false,
+                &next,
             ),
             Ok(OtpOutcome::WrongCode) => {
-                render_login(root, "Rangur kóði. Reyndu aftur.", &email, true)
+                render_login(root, "Rangur kóði. Reyndu aftur.", &email, true, &next)
             }
             Err(e) => server_err_raw(&format!("verify failed: {e}")),
         };
@@ -289,7 +298,7 @@ fn login_submit(
 
     // Request step: only email submitted, mint and deliver a code.
     match state.request_otp(&email) {
-        Ok(()) => render_login(root, "", &email, true),
+        Ok(()) => render_login(root, "", &email, true, &next),
         Err(e) => server_err_raw(&format!("could not send code: {e}")),
     }
 }
@@ -350,7 +359,7 @@ pub fn dev_login(state: &State, req: &Request, booking_store: &crate::booking::S
 // Template rendering
 // ---------------------------------------------------------------------------
 
-fn render_login(root: &Path, error: &str, email: &str, sent: bool) -> Response {
+fn render_login(root: &Path, error: &str, email: &str, sent: bool, next: &str) -> Response {
     use crate::serve::{build_engine_pub, load_context_pub};
     let engine = match build_engine_pub(root) {
         Ok(e) => e,
@@ -361,6 +370,7 @@ fn render_login(root: &Path, error: &str, email: &str, sent: bool) -> Response {
         pairs.push(("error".into(), Value::Str(error.to_string())));
         pairs.push(("form_email".into(), Value::Str(email.to_string())));
         pairs.push(("sent".into(), bool_flag(sent)));
+        pairs.push(("next".into(), Value::Str(next.to_string())));
         pairs.push((
             "page_title".into(),
             Value::Str("Innskráning — Golfsetrið Akureyri".into()),
@@ -369,6 +379,24 @@ fn render_login(root: &Path, error: &str, email: &str, sent: bool) -> Response {
     match engine.render("login", &context) {
         Ok(html) => Response::ok().with_html(&html),
         Err(e) => server_err_raw(&e.message),
+    }
+}
+
+fn next_from_query(req: &Request) -> Option<String> {
+    let pairs = req.query.as_deref().map(form::parse_urlencoded)?;
+    safe_next(form::field(&pairs, "next"))
+}
+
+fn safe_next(raw: Option<&str>) -> Option<String> {
+    let value = raw?.trim();
+    if value.starts_with('/')
+        && !value.starts_with("//")
+        && !value.contains('\r')
+        && !value.contains('\n')
+    {
+        Some(value.to_string())
+    } else {
+        None
     }
 }
 
@@ -1101,6 +1129,18 @@ mod tests {
         assert_eq!(parse_cookie(hdr, "gsd_session").as_deref(), Some("abc123"));
         assert_eq!(parse_cookie(hdr, "theme").as_deref(), Some("dark"));
         assert_eq!(parse_cookie(hdr, "missing"), None);
+    }
+
+    #[test]
+    fn safe_next_accepts_only_local_paths() {
+        assert_eq!(safe_next(Some("/checkout")).as_deref(), Some("/checkout"));
+        assert_eq!(
+            safe_next(Some("/checkout?x=1")).as_deref(),
+            Some("/checkout?x=1")
+        );
+        assert_eq!(safe_next(Some("https://example.com")), None);
+        assert_eq!(safe_next(Some("//example.com")), None);
+        assert_eq!(safe_next(Some("/checkout\r\nLocation: /bad")), None);
     }
 
     #[test]

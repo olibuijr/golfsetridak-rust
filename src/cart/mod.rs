@@ -182,6 +182,42 @@ impl Store {
         Ok(summary_locked(&mut t, &cart))
     }
 
+    pub fn merge_open_cart_into(
+        &self,
+        source_cart_id: &str,
+        target_cart_id: &str,
+        now_ms: i64,
+    ) -> Result<CartSummary, String> {
+        let (target, _) = self.get_or_create_open(Some(target_cart_id), now_ms)?;
+        if source_cart_id == target.id {
+            return Ok(target);
+        }
+
+        let source_items = self
+            .load_cart(source_cart_id)
+            .filter(|(cart, _)| cart.status == "open")
+            .map(|(_, items)| items)
+            .unwrap_or_default();
+
+        let mut next = target;
+        for item in source_items {
+            next = self.add_item(
+                &next.id,
+                ResolvedItem {
+                    item_type: item.item_type,
+                    ref_id: item.ref_id,
+                    name_snapshot: item.name_snapshot,
+                    unit_price: item.unit_price,
+                    quantity: item.quantity,
+                    metadata: item.metadata,
+                },
+                now_ms,
+            )?;
+        }
+        self.clear_items(source_cart_id)?;
+        Ok(next)
+    }
+
     pub fn update_quantity(
         &self,
         cart_id: &str,
@@ -303,6 +339,10 @@ fn item_value(item: &CartItem) -> Value {
         ("id".into(), Value::Str(item.id.clone())),
         ("cartId".into(), Value::Str(item.cart_id.clone())),
         ("type".into(), Value::Str(item.item_type.clone())),
+        (
+            "typeLabel".into(),
+            Value::Str(type_label(&item.item_type).to_string()),
+        ),
         ("refId".into(), Value::Str(item.ref_id.clone())),
         (
             "nameSnapshot".into(),
@@ -339,6 +379,17 @@ fn format_isk(amount: i64) -> String {
         out.push(ch);
     }
     format!("{}{} kr", if neg { "-" } else { "" }, out)
+}
+
+fn type_label(item_type: &str) -> &'static str {
+    match item_type {
+        "product" => "Vara",
+        "package" => "Klippikort",
+        "slot" => "Tími",
+        "subscription" => "Áskrift",
+        "gift_card" => "Gjafabréf",
+        _ => "Karfaliður",
+    }
 }
 
 fn validate_item_type(item_type: &str) -> Result<(), String> {
@@ -521,6 +572,17 @@ mod tests {
         }
     }
 
+    fn slot(ref_id: &str, price: i64) -> ResolvedItem {
+        ResolvedItem {
+            item_type: "slot".into(),
+            ref_id: ref_id.into(),
+            name_snapshot: "Tími".into(),
+            unit_price: price,
+            quantity: 1,
+            metadata: Value::Object(vec![]),
+        }
+    }
+
     #[test]
     fn add_merges_products_and_totals() {
         let (store, dir) = temp_store("add");
@@ -557,6 +619,33 @@ mod tests {
         let cart = store.remove_item(&cart.id, &item_id, 103).unwrap();
         assert_eq!(cart.items.len(), 0);
         assert_eq!(cart.subtotal, 0);
+        cleanup(&dir);
+    }
+
+    #[test]
+    fn merge_open_cart_into_user_cart_moves_items_and_dedupes_slots() {
+        let (store, dir) = temp_store("merge");
+        let (anon, _) = store.get_or_create_open(Some("anon-cart"), 100).unwrap();
+        store
+            .add_item(&anon.id, product("p1", 1200, 2), 101)
+            .unwrap();
+        store
+            .add_item(&anon.id, slot("2026-06-27T10:00:00.000Z", 3500), 102)
+            .unwrap();
+        store
+            .add_item(&anon.id, slot("2026-06-27T10:00:00.000Z", 3500), 103)
+            .unwrap();
+
+        let merged = store
+            .merge_open_cart_into("anon-cart", "user-cart", 104)
+            .unwrap();
+        assert_eq!(merged.id, "user-cart");
+        assert_eq!(merged.items.len(), 2);
+        assert_eq!(merged.item_count, 3);
+        assert_eq!(merged.subtotal, 5900);
+
+        let anon_after = store.get_or_create_open(Some("anon-cart"), 105).unwrap().0;
+        assert!(anon_after.items.is_empty());
         cleanup(&dir);
     }
 }

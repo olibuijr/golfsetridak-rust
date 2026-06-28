@@ -12,46 +12,55 @@
         <p class="section-tag">Rástími</p>
         <h2>{{ slot_date }} · {{ slot_time }}</h2>
         <p>Verð: <strong style="color:var(--accent)">{{ price_label }}</strong></p>
-        {% if logged_in %}
         <div class="btn-row">
-          <button class="btn btn-primary" type="button" id="book-btn" onclick="bookSlot()">Bóka og greiða</button>
+          <button class="btn btn-primary" type="button" id="book-btn">Setja í körfu</button>
           <a class="btn btn-ghost" href="/">Til baka í dagatal</a>
         </div>
         <p id="book-status" class="muted" role="status" style="margin-top:14px"></p>
-        {% else %}
-        <p class="muted">Skráðu þig inn til að staðfesta bókun.</p>
-        <div class="btn-row">
-          <a class="btn btn-primary" href="/login">Innskrá</a>
-          <a class="btn btn-ghost" href="/">Til baka í dagatal</a>
-        </div>
-        {% endif %}
       </div>
     </section>
 
     <script>
-      async function bookSlot() {
+      document.getElementById("book-btn").addEventListener("click", addSlotToCart);
+
+      async function addSlotToCart() {
         var btn = document.getElementById("book-btn");
         var status = document.getElementById("book-status");
+        if (btn.disabled) return;
         btn.disabled = true;
-        status.textContent = "Bóka...";
+        status.textContent = "Set tíma í körfu...";
         try {
-          var res = await fetch("/api/book", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ slotTime: {{ slot_ms }}, paymentType: "single" })
-          });
-          var data = await res.json();
-          if (res.ok) {
-            status.textContent = "Bókun staðfest! Þú færð aðgangskóðann sendan.";
-            btn.textContent = "Bókað";
-          } else {
-            status.textContent = data.error || "Tókst ekki að bóka.";
-            btn.disabled = false;
+          var cart = await postCartItem({ type: "slot", refId: "{{ slot_iso }}", quantity: 1 });
+          if (cart && window.GolfCart && typeof window.GolfCart.open === "function") {
+            window.GolfCart.open();
           }
+          status.textContent = "Tíminn er kominn í körfu.";
+          btn.textContent = "Komið í körfu";
+          window.setTimeout(function () {
+            btn.textContent = "Setja í körfu";
+            btn.disabled = false;
+          }, 1400);
         } catch (err) {
-          status.textContent = "Villa kom upp við bókun.";
+          status.textContent = err.message || "Tókst ekki að setja tíma í körfu.";
           btn.disabled = false;
         }
+      }
+
+      async function postCartItem(payload) {
+        if (window.GolfCart && typeof window.GolfCart.addItem === "function") {
+          return window.GolfCart.addItem(payload);
+        }
+        var res = await fetch("/api/cart/items", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify(payload)
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok) {
+          throw new Error(data.error || "Tókst ekki að setja tíma í körfu.");
+        }
+        return data.cart;
       }
     </script>
 {% include "footer" %}

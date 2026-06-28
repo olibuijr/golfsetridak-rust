@@ -11,7 +11,7 @@
         {% for item in cart.items %}
         <article class="cart-line" data-item-id="{{ item.id }}">
           <div>
-            <p class="cart-line-type">{{ item.type }}</p>
+            <p class="cart-line-type">{{ item.typeLabel }}</p>
             <h2>{{ item.nameSnapshot }}</h2>
             <p data-cart-page-line-summary>{{ item.unitPriceLabel }} × {{ item.quantity }}</p>
           </div>
@@ -33,14 +33,17 @@
         <p class="muted">Verð með VSK. Greitt með korti eða millifærslu.</p>
         <div class="btn-row">
           <a class="btn btn-primary" href="/checkout">Greiða</a>
-          <a class="btn btn-ghost" href="/verslun">Halda áfram að versla</a>
+          <a class="btn btn-ghost" href="/">Velja annan tíma</a>
         </div>
       </aside>
       {% else %}
       <div class="empty-state">
         <h2>Karfan er tóm</h2>
-        <p>Bættu vöru í körfu úr versluninni.</p>
-        <a class="btn btn-primary" href="/verslun">Fara í verslun</a>
+        <p>Veldu lausan tíma eða bættu vöru í körfu.</p>
+        <div class="btn-row">
+          <a class="btn btn-primary" href="/">Velja tíma</a>
+          <a class="btn btn-secondary" href="/verslun">Fara í verslun</a>
+        </div>
       </div>
       {% endif %}
     </section>

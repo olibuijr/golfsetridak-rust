@@ -48,9 +48,10 @@
       {% endif %}
 
       <p class="calendar-note">
-        Skráðu þig inn á <a href="/my">Mínar síður</a> til að staðfesta bókun.
+        Veldu lausan tíma til að setja hann í körfu.
         Bókunarglugginn nær yfir næstu 14 daga.
       </p>
+      <p class="calendar-status" data-slot-cart-status role="status" aria-live="polite"></p>
 
       <div class="calendar-days">
         {% for day in calendar_days %}
@@ -61,15 +62,66 @@
           </header>
           <div class="slot-grid">
             {% for slot in day.slots %}
+            {% if slot.available %}
+            <button class="slot-card slot-available" type="button" data-add-slot-to-cart data-starts-at="{{ slot.starts_at }}">
+              <span class="slot-hour">{{ slot.hour_label }}</span>
+              <span class="slot-price">{{ slot.price_label }}</span>
+            </button>
+            {% else %}
             <div class="slot-card slot-{{ slot.status }}" data-starts-at="{{ slot.starts_at }}">
               <span class="slot-hour">{{ slot.hour_label }}</span>
-              {% if slot.available %}<span class="slot-price">{{ slot.price_label }}</span>{% endif %}
               {% if slot.status == "booked" %}<span class="slot-tag">Bókað</span>{% endif %}
             </div>
+            {% endif %}
             {% endfor %}
           </div>
         </article>
         {% endfor %}
       </div>
     </section>
+    <script>
+      (function () {
+        var status = document.querySelector("[data-slot-cart-status]");
+        function setStatus(message) {
+          if (status) status.textContent = message || "";
+        }
+        async function addSlot(button) {
+          if (!button || button.disabled) return;
+          var startsAt = button.getAttribute("data-starts-at");
+          if (!startsAt) return;
+          button.disabled = true;
+          setStatus("Set tíma í körfu...");
+          try {
+            var cart = await postCartItem({ type: "slot", refId: startsAt, quantity: 1 });
+            if (cart && window.GolfCart && typeof window.GolfCart.open === "function") {
+              window.GolfCart.open();
+            }
+            setStatus("Tíminn er kominn í körfu.");
+          } catch (err) {
+            setStatus(err.message || "Tókst ekki að setja tíma í körfu.");
+          } finally {
+            button.disabled = false;
+          }
+        }
+        async function postCartItem(payload) {
+          if (window.GolfCart && typeof window.GolfCart.addItem === "function") {
+            return window.GolfCart.addItem(payload);
+          }
+          var res = await fetch("/api/cart/items", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            credentials: "same-origin",
+            body: JSON.stringify(payload)
+          });
+          var data = await res.json().catch(function () { return {}; });
+          if (!res.ok) {
+            throw new Error(data.error || "Tókst ekki að setja tíma í körfu.");
+          }
+          return data.cart;
+        }
+        document.querySelectorAll("[data-add-slot-to-cart]").forEach(function (button) {
+          button.addEventListener("click", function () { addSlot(button); });
+        });
+      })();
+    </script>
 {% include "footer" %}

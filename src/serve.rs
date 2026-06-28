@@ -327,8 +327,8 @@ fn dispatch(
         }
 
         // Gift card API (Phase 3). Public lookup + redeem; admin issuance/listing gated.
-        "/api/cart/gift-card/lookup" => api_giftcard_lookup(giftcard_store, cart_store, req),
-        "/api/cart/gift-card/redeem" => api_giftcard_redeem(giftcard_store, cart_store, req),
+        "/api/cart/gift-card/lookup" => api_giftcard_lookup(giftcard_store, cart_store, auth, req),
+        "/api/cart/gift-card/redeem" => api_giftcard_redeem(giftcard_store, cart_store, auth, req),
         "/api/admin/gift-cards" => {
             if !auth.require_role(req, auth::Role::Admin) {
                 return json(401, &error_value("Unauthorized"));
@@ -1327,16 +1327,8 @@ fn api_cart(store: &CartStore, req: &Request, auth: &auth::State) -> Response {
     if req.method != Method::Get {
         return json(405, &error_value("method not allowed"));
     }
-    let user = auth.current_user(req);
-    let effective_id = user
-        .as_ref()
-        .map(|u| user_cart_id(&u.email))
-        .or_else(|| cart::cookie_cart_id(req));
-    match store.get_or_create_open(effective_id.as_deref(), now_ms()) {
-        Ok((summary, created)) => {
-            let set = created && user.is_none();
-            cart_json(200, &summary, set)
-        }
+    match active_cart_summary(store, auth, req, now_ms()) {
+        Ok((summary, set_cookie)) => cart_json(200, &summary, set_cookie),
         Err(e) => json(500, &error_value(&e)),
     }
 }
@@ -1349,28 +1341,22 @@ fn api_cart_items(
     path_id: Option<&str>,
     auth: &auth::State,
 ) -> Response {
-    let user = auth.current_user(req);
-    let effective_id = user
-        .as_ref()
-        .map(|u| user_cart_id(&u.email))
-        .or_else(|| cart::cookie_cart_id(req));
-    let (summary, created) = match cart_store.get_or_create_open(effective_id.as_deref(), now_ms())
-    {
+    let now = now_ms();
+    let (summary, set_cookie) = match active_cart_summary(cart_store, auth, req, now) {
         Ok(v) => v,
         Err(e) => return json(500, &error_value(&e)),
     };
-    let set_cookie = created && user.is_none();
     match req.method {
         Method::Post => {
             let body = match body_json(req) {
                 Ok(v) => v,
                 Err(r) => return r,
             };
-            let item = match resolve_cart_item(booking_store, collections_api, &body, now_ms()) {
+            let item = match resolve_cart_item(booking_store, collections_api, &body, now) {
                 Ok(item) => item,
                 Err((status, e)) => return json(status, &error_value(&e)),
             };
-            match cart_store.add_item(&summary.id, item, now_ms()) {
+            match cart_store.add_item(&summary.id, item, now) {
                 Ok(next) => cart_json(201, &next, set_cookie),
                 Err(e) => json(400, &error_value(&e)),
             }
@@ -1390,7 +1376,7 @@ fn api_cart_items(
             let Some(quantity) = int_field(&body, "quantity") else {
                 return json(400, &error_value("quantity must be a non-negative number"));
             };
-            match cart_store.update_quantity(&summary.id, id, quantity, now_ms()) {
+            match cart_store.update_quantity(&summary.id, id, quantity, now) {
                 Ok(next) => cart_json(200, &next, set_cookie),
                 Err(e) if e == "item not found" => json(404, &error_value(&e)),
                 Err(e) => json(400, &error_value(&e)),
@@ -1405,7 +1391,7 @@ fn api_cart_items(
             let Some(id) = id else {
                 return json(400, &error_value("id required"));
             };
-            match cart_store.remove_item(&summary.id, id, now_ms()) {
+            match cart_store.remove_item(&summary.id, id, now) {
                 Ok(next) => cart_json(200, &next, set_cookie),
                 Err(e) => json(400, &error_value(&e)),
             }
@@ -1437,25 +1423,20 @@ fn api_cart_items_bulk(
     if items.len() > 50 {
         return json(400, &error_value("too many items"));
     }
-    let user = auth.current_user(req);
-    let effective_id = user
-        .as_ref()
-        .map(|u| user_cart_id(&u.email))
-        .or_else(|| cart::cookie_cart_id(req));
-    let (mut summary, created) =
-        match cart_store.get_or_create_open(effective_id.as_deref(), now_ms()) {
-            Ok(v) => v,
-            Err(e) => return json(500, &error_value(&e)),
-        };
+    let now = now_ms();
+    let (mut summary, set_cookie) = match active_cart_summary(cart_store, auth, req, now) {
+        Ok(v) => v,
+        Err(e) => return json(500, &error_value(&e)),
+    };
     for raw in items {
-        if let Ok(item) = resolve_cart_item(booking_store, collections_api, raw, now_ms()) {
-            match cart_store.add_item(&summary.id, item, now_ms()) {
+        if let Ok(item) = resolve_cart_item(booking_store, collections_api, raw, now) {
+            match cart_store.add_item(&summary.id, item, now) {
                 Ok(next) => summary = next,
                 Err(_) => continue,
             }
         }
     }
-    cart_json(201, &summary, created && user.is_none())
+    cart_json(201, &summary, set_cookie)
 }
 
 fn resolve_cart_item(
@@ -1614,6 +1595,35 @@ pub fn user_cart_id(email: &str) -> String {
     format!("u-{}", &slug[..slug.len().min(90)])
 }
 
+pub(crate) fn cart_summary_for_user(
+    store: &CartStore,
+    req: &Request,
+    email: &str,
+    now: i64,
+) -> Result<cart::CartSummary, String> {
+    let user_id = user_cart_id(email);
+    if let Some(cookie_id) = cart::cookie_cart_id(req).filter(|id| id != &user_id) {
+        store.merge_open_cart_into(&cookie_id, &user_id, now)
+    } else {
+        store
+            .get_or_create_open(Some(&user_id), now)
+            .map(|(summary, _)| summary)
+    }
+}
+
+fn active_cart_summary(
+    store: &CartStore,
+    auth: &auth::State,
+    req: &Request,
+    now: i64,
+) -> Result<(cart::CartSummary, bool), String> {
+    if let Some(user) = auth.current_user(req) {
+        return cart_summary_for_user(store, req, &user.email, now).map(|summary| (summary, false));
+    }
+    let cookie_id = cart::cookie_cart_id(req);
+    store.get_or_create_open(cookie_id.as_deref(), now)
+}
+
 // ---- gift card API --------------------------------------------------------
 
 /// Serialize a gift card to camelCase JSON (mirroring the source API). Includes
@@ -1651,7 +1661,12 @@ fn giftcard_value(card: &giftcards::GiftCard) -> Value {
 /// active cart. Returns the card balance plus how much would apply to the cart
 /// subtotal. Errors (not found / inactive / expired / depleted) return 200 with
 /// `{ ok: false, reason }`, mirroring the source route.
-fn api_giftcard_lookup(store: &GiftCardStore, cart_store: &CartStore, req: &Request) -> Response {
+fn api_giftcard_lookup(
+    store: &GiftCardStore,
+    cart_store: &CartStore,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
     if req.method != Method::Post {
         return json(405, &error_value("method not allowed"));
     }
@@ -1681,10 +1696,8 @@ fn api_giftcard_lookup(store: &GiftCardStore, cart_store: &CartStore, req: &Requ
         }
     };
 
-    // Resolve the active cart subtotal (anonymous cookie cart or user cart).
-    let effective_id = cart::cookie_cart_id(req);
-    let subtotal = cart_store
-        .get_or_create_open(effective_id.as_deref(), now_ms())
+    // Resolve the active cart subtotal (anonymous cookie cart or merged user cart).
+    let subtotal = active_cart_summary(cart_store, auth, req, now_ms())
         .map(|(summary, _)| summary.subtotal)
         .unwrap_or(0);
     let applied = card.balance.min(subtotal);
@@ -1719,7 +1732,12 @@ fn api_giftcard_lookup(store: &GiftCardStore, cart_store: &CartStore, req: &Requ
 ///
 /// Returns the applied amount, remaining card balance, and remaining cart total
 /// so the checkout flow can display the discount breakdown to the user.
-fn api_giftcard_redeem(store: &GiftCardStore, cart_store: &CartStore, req: &Request) -> Response {
+fn api_giftcard_redeem(
+    store: &GiftCardStore,
+    cart_store: &CartStore,
+    auth: &auth::State,
+    req: &Request,
+) -> Response {
     if req.method != Method::Post {
         return json(405, &error_value("method not allowed"));
     }
@@ -1739,13 +1757,9 @@ fn api_giftcard_redeem(store: &GiftCardStore, cart_store: &CartStore, req: &Requ
     // Use the provided cartTotal, or fall back to the active cart subtotal.
     let cart_total = match body.get("cartTotal").and_then(Value::as_i64) {
         Some(n) if n > 0 => n,
-        _ => {
-            let effective_id = cart::cookie_cart_id(req);
-            cart_store
-                .get_or_create_open(effective_id.as_deref(), now_ms())
-                .map(|(summary, _)| summary.subtotal)
-                .unwrap_or(0)
-        }
+        _ => active_cart_summary(cart_store, auth, req, now_ms())
+            .map(|(summary, _)| summary.subtotal)
+            .unwrap_or(0),
     };
 
     let cart_id = body
@@ -2311,13 +2325,8 @@ fn shop_page(
     auth: &auth::State,
     req: &Request,
 ) -> Response {
-    let user = auth.current_user(req);
-    let effective_id = user
-        .as_ref()
-        .map(|u| user_cart_id(&u.email))
-        .or_else(|| cart::cookie_cart_id(req));
     let (cart_value, cart_id, item_count, subtotal_label, created) =
-        match cart_store.get_or_create_open(effective_id.as_deref(), now_ms()) {
+        match active_cart_summary(cart_store, auth, req, now_ms()) {
             Ok((summary, created)) => (
                 cart::cart_value(&summary),
                 Some(summary.id),
@@ -2356,7 +2365,7 @@ fn shop_page(
         auth,
         req,
     );
-    if created && user.is_none() {
+    if created {
         if let Some(cart_id) = cart_id {
             resp = resp.with_header("Set-Cookie", &cart::cookie_header(&cart_id));
         }
@@ -2365,13 +2374,8 @@ fn shop_page(
 }
 
 fn cart_page(root: &Path, store: &CartStore, req: &Request, auth: &auth::State) -> Response {
-    let user = auth.current_user(req);
-    let effective_id = user
-        .as_ref()
-        .map(|u| user_cart_id(&u.email))
-        .or_else(|| cart::cookie_cart_id(req));
-    match store.get_or_create_open(effective_id.as_deref(), now_ms()) {
-        Ok((summary, created)) => {
+    match active_cart_summary(store, auth, req, now_ms()) {
+        Ok((summary, set_cookie)) => {
             let mut resp = render(
                 root,
                 "cart",
@@ -2390,7 +2394,7 @@ fn cart_page(root: &Path, store: &CartStore, req: &Request, auth: &auth::State) 
                 auth,
                 req,
             );
-            if created && user.is_none() {
+            if set_cookie {
                 resp = resp.with_header("Set-Cookie", &cart::cookie_header(&summary.id));
             }
             resp
@@ -2646,7 +2650,8 @@ const DAY_NAMES: [&str; 7] = ["Sun", "Mán", "Þri", "Mið", "Fim", "Fös", "Lau
 
 /// Render the home booking calendar: availability + pricing across the booking
 /// window (14 days for an anonymous visitor, mirroring `getBookingWindowEnd`).
-/// Server-rendered — the slots are plain links/markup, no client JS required.
+/// Available slots are server-rendered buttons whose template JS adds a `slot`
+/// line item to the shared cart drawer.
 fn calendar_page(
     root: &Path,
     store: &BookingStore,
@@ -3251,6 +3256,10 @@ fn book_slot_page(
                 Value::Str("Bóka tíma — Golfsetrið Akureyri".into()),
             ),
             ("slot_ms".into(), Value::Int(slot_ms)),
+            (
+                "slot_iso".into(),
+                Value::Str(booking::time::iso_string(slot_ms)),
+            ),
             (
                 "slot_date".into(),
                 Value::Str(booking::time::date_string(slot_ms)),

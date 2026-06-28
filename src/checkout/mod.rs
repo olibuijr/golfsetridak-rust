@@ -297,9 +297,8 @@ pub fn api_checkout(
         );
     };
     let now = now_ms();
-    let cart_id = crate::serve::user_cart_id(&user.email);
-    let summary = match carts.get_or_create_open(Some(&cart_id), now) {
-        Ok((summary, _)) => summary,
+    let summary = match crate::serve::cart_summary_for_user(carts, req, &user.email, now) {
+        Ok(summary) => summary,
         Err(e) => return err_json(500, &e),
     };
     if summary.items.is_empty() {
@@ -495,12 +494,11 @@ pub fn page_checkout(
     req: &Request,
 ) -> Response {
     let Some(user) = auth.current_user(req) else {
-        return redirect("/login");
+        return redirect("/login?next=/checkout");
     };
     let now = now_ms();
-    let cart_id = crate::serve::user_cart_id(&user.email);
-    let summary = match carts.get_or_create_open(Some(&cart_id), now) {
-        Ok((summary, _)) => summary,
+    let summary = match crate::serve::cart_summary_for_user(carts, req, &user.email, now) {
+        Ok(summary) => summary,
         Err(e) => return err_json(500, &e),
     };
     render_page(
@@ -531,7 +529,7 @@ pub fn page_bank_transfer(
     req: &Request,
 ) -> Response {
     if auth.current_user(req).is_none() {
-        return redirect("/login");
+        return redirect("/login?next=/checkout");
     }
     let q = req
         .query
@@ -568,7 +566,7 @@ pub fn page_bank_transfer(
 /// `/checkout/landsbankinn` — informational page for the hosted card flow.
 pub fn page_landsbankinn(root: &Path, auth: &auth::State, req: &Request) -> Response {
     if auth.current_user(req).is_none() {
-        return redirect("/login");
+        return redirect("/login?next=/checkout");
     }
     render_page(
         root,
