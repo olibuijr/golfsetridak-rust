@@ -110,6 +110,38 @@ pub fn date_string(ms: i64) -> String {
     format!("{:04}-{:02}-{:02}", c.year, c.month, c.day)
 }
 
+/// Format `ms` for customer-facing Icelandic UI, for example
+/// `28. júní 2026 kl. 16:00`.
+pub fn display_datetime(ms: i64) -> String {
+    let c = to_civil(ms);
+    format!(
+        "{}. {} {} kl. {:02}:{:02}",
+        c.day,
+        month_name(c.month),
+        c.year,
+        c.hour,
+        c.minute
+    )
+}
+
+fn month_name(month: i64) -> &'static str {
+    match month {
+        1 => "janúar",
+        2 => "febrúar",
+        3 => "mars",
+        4 => "apríl",
+        5 => "maí",
+        6 => "júní",
+        7 => "júlí",
+        8 => "ágúst",
+        9 => "september",
+        10 => "október",
+        11 => "nóvember",
+        12 => "desember",
+        _ => "",
+    }
+}
+
 /// Format `ms` as a UTC ISO-8601 string `YYYY-MM-DDTHH:MM:SS.mmmZ`, matching
 /// the source's `Date.toISOString()` — this is the canonical slot key clients
 /// receive from `/api/availability` and post back to `/api/book`.
@@ -256,6 +288,7 @@ mod tests {
         let ms = from_civil(c);
         assert_eq!(to_civil(ms), c);
         assert_eq!(date_string(ms), "2026-06-26");
+        assert_eq!(display_datetime(ms), "26. júní 2026 kl. 13:00");
         assert_eq!(iso_string(ms), "2026-06-26T13:00:00.000Z");
         assert_eq!(hour_of(ms), 13);
     }

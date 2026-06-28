@@ -1544,7 +1544,7 @@ fn resolve_slot_item(
     Ok(cart::ResolvedItem {
         item_type: "slot".into(),
         ref_id: ref_id.to_string(),
-        name_snapshot: format!("{ref_id} kl. {hour:02}:00"),
+        name_snapshot: booking::time::display_datetime(slot_ms),
         unit_price,
         quantity: 1,
         metadata: Value::Object(vec![

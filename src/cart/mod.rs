@@ -346,7 +346,7 @@ fn item_value(item: &CartItem) -> Value {
         ("refId".into(), Value::Str(item.ref_id.clone())),
         (
             "nameSnapshot".into(),
-            Value::Str(item.name_snapshot.clone()),
+            Value::Str(display_name_snapshot(item)),
         ),
         ("unitPrice".into(), Value::Int(item.unit_price)),
         (
@@ -365,6 +365,20 @@ fn item_value(item: &CartItem) -> Value {
             Value::Str(format_isk(item.unit_price.saturating_mul(item.quantity))),
         ),
     ])
+}
+
+fn display_name_snapshot(item: &CartItem) -> String {
+    if item.item_type == "slot" {
+        let starts_at = item
+            .metadata
+            .get("startsAt")
+            .and_then(Value::as_str)
+            .unwrap_or(&item.ref_id);
+        if let Some(ms) = crate::booking::time::parse_instant(starts_at) {
+            return crate::booking::time::display_datetime(ms);
+        }
+    }
+    item.name_snapshot.clone()
 }
 
 fn format_isk(amount: i64) -> String {
@@ -647,5 +661,29 @@ mod tests {
         let anon_after = store.get_or_create_open(Some("anon-cart"), 105).unwrap().0;
         assert!(anon_after.items.is_empty());
         cleanup(&dir);
+    }
+
+    #[test]
+    fn slot_name_snapshot_is_customer_friendly_in_cart_json() {
+        let item = CartItem {
+            id: "ci-1".into(),
+            cart_id: "cart-1".into(),
+            item_type: "slot".into(),
+            ref_id: "2026-06-28T16:00:00.000Z".into(),
+            name_snapshot: "2026-06-28T16:00:00.000Z kl. 16:00".into(),
+            unit_price: 3500,
+            quantity: 1,
+            metadata: Value::Object(vec![(
+                "startsAt".into(),
+                Value::Str("2026-06-28T16:00:00.000Z".into()),
+            )]),
+            created_at: 100,
+        };
+
+        let value = item_value(&item);
+        assert_eq!(
+            value.get("nameSnapshot").and_then(Value::as_str),
+            Some("28. júní 2026 kl. 16:00")
+        );
     }
 }
