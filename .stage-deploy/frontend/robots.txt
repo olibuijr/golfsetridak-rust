@@ -1,8 +1,0 @@
-User-agent: *
-Allow: /
-Disallow: /admin
-Disallow: /my
-Disallow: /api
-Disallow: /checkout
-
-Sitemap: https://golfsetridak.is/sitemap.xml
