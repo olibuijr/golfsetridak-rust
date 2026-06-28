@@ -95,7 +95,7 @@ h3 { font-size: 1.25rem; }
   align-items: center;
   gap: 24px;
   padding: max(14px, env(safe-area-inset-top)) max(24px, env(safe-area-inset-right)) 14px max(24px, env(safe-area-inset-left));
-  background: rgba(43, 57, 51, 0.82);
+  background: var(--surface);
   backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
 }
