@@ -10,6 +10,10 @@ authors = ["Ólafur Búi Ólafsson"]
 name = "golfsetridak"
 path = "src/main.rs"
 
+[[bin]]
+name = "migrate"
+path = "src/bin/migrate.rs"
+
 # This repo is its own workspace root and owns the vendored framework crates as
 # members (see framework/FORK.md). The [workspace.package] values mirror the
 # upstream framework root so the vendored crates' `*.workspace = true`
@@ -59,6 +63,10 @@ akurai-collections = { path = "framework/crates/collections" }
 akurai-blobs = { path = "framework/crates/blobs" }
 akurai-vector = { path = "framework/crates/vector" }
 akurai-toml = { path = "framework/crates/toml" }
+
+# Migration binary only — reads the old SQLite DB for one-shot data port.
+# bundled = SQLite compiled from C source (no system lib needed).
+rusqlite = { version = "0.31", features = ["bundled"] }
 
 # Match the framework's release profile: one small, stripped, fully-optimized
 # static binary.

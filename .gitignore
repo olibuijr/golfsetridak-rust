@@ -18,5 +18,6 @@
 
 # Agent worktrees / local tooling
 .claude/
+.clawhub/
 
 .cargo/

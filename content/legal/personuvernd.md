@@ -1,7 +1,7 @@
 ---
 title: Persónuverndarstefna
 lead: Hjá Golfsetrinu ehf. er lögð rík áhersla á vernd persónuupplýsinga og að meðferð þeirra sé í samræmi við lög nr. 90/2018 um persónuvernd og vinnslu persónuupplýsinga, sem og reglugerð Evrópuþingsins og ráðsins (ESB) 2016/679 (GDPR).
-lastUpdated: 16. apríl 2026
+lastUpdated: 4. júlí 2026
 metaTitle: Persónuverndarstefna — Golfsetrið
 metaDescription: Persónuverndarstefna Golfsetrsins ehf. — söfnun, vinnsla og vernd persónuupplýsinga viðskiptavina.
 ---
@@ -34,7 +34,7 @@ Golfsetrið nýtir sér valda vinnsluaðila til að hýsa gögn og sinna sérhæ
 
 - **Landsbankinn hf.:** Annast alla færsluhirðingu og örugga vinnslu greiðslna.
 - **Hýsing:** Vefsvæðið er hýst hjá þjónustuaðila á Íslandi sem tryggir örugga geymslu gagna innanlands.
-- **Tölvupóstþjónusta:** Allur tölvupóstur er sendur í gegnum Stalwart póstþjón (mail.hbhf.is).
+- **Tölvupóstþjónusta:** Tölvupóstur er sendur í gegnum Brevo (áður Sendinblue) — vottuð tölvupóstþjónusta með SPF, DKIM og DMARC staðfestingu á léni golfsetridak.is.
 
 Við seljum aldrei persónuupplýsingar þínar til þriðja aðila.
 
