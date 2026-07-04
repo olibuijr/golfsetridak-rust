@@ -107,7 +107,7 @@ fn store_files(dir: &Path) -> Vec<PathBuf> {
         if sd.is_dir() {
             for e in std::fs::read_dir(&sd).unwrap() {
                 let e = e.unwrap();
-                if e.path().extension().map_or(false, |x| x == "db") {
+                if e.path().extension().is_some_and(|x| x == "db") {
                     out.push(e.path());
                 }
             }
@@ -172,7 +172,7 @@ fn read_all(old: &Connection) -> AllData {
         if !d.auth_users.iter().any(|a| {
             u.email
                 .as_ref()
-                .map_or(false, |em| a.email.to_lowercase() == em.to_lowercase())
+                .is_some_and(|em| a.email.to_lowercase() == em.to_lowercase())
         }) {
             if let Some(ref email) = u.email {
                 d.auth_users.push(AuRow {
@@ -389,7 +389,7 @@ fn parse_date_ms(s: &str) -> i64 {
                 p[1].parse::<u64>(),
                 p[2].parse::<u64>(),
             ) {
-                if m >= 1 && m <= 12 && d >= 1 && d <= 31 {
+                if (1..=12).contains(&m) && (1..=31).contains(&d) {
                     let era = if m <= 2 { y as u64 - 1 } else { y as u64 };
                     let yoe = era - era / 400 * 400;
                     let doy = (153 * (if m > 2 { m - 3 } else { m + 9 }) + 2) / 5 + d - 1;
