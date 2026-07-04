@@ -3678,6 +3678,7 @@ pub fn render(
     if let Some(user) = auth.current_user(req) {
         extra.push(("auth_user_email".into(), Value::Str(user.email)));
     }
+    extra.push(("version".into(), Value::Str(VERSION.into())));
     let mut context = load_context(root);
     if let Value::Object(pairs) = &mut context {
         pairs.extend(extra);

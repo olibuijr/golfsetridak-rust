@@ -1,6 +1,6 @@
 [package]
 name = "golfsetridak"
-version = "0.0.45"
+version = "0.0.46"
 edition = "2021"
 license = "MIT"
 description = "Golfsetrið Akureyri — a single-binary website built on the AkurAI-Framework crates."
