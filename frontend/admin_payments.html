@@ -1,12 +1,13 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>Greiðslur</h1>
-        <p class="lede">Yfirlit yfir millifærslur sem bíða staðfestingar.</p>
-      </div>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>Greiðslur</h1>
+            <p class="lede">Yfirlit yfir millifærslur sem bíða staðfestingar.</p>
+          </div>
+        </section>
 
     <section class="admin-table-wrap">
       <table class="admin-table">
@@ -33,4 +34,6 @@
       <p class="muted admin-empty">Engar millifærslur bíða staðfestingar.</p>
       {% endif %}
     </section>
+    </div>
+    </div>
 {% include "footer" %}

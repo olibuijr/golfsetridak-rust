@@ -1,13 +1,14 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>{{ form_title }}</h1>
-        <p class="lede">Skráðu mót fyrir golfherminn með verði, lýsingu, reglum, tímasetningu, þátttakendafjölda og verðlaunum.</p>
-      </div>
-      <a class="btn btn-secondary" href="/admin/mot">Til baka í mót</a>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>{{ form_title }}</h1>
+            <p class="lede">Skráðu mót fyrir golfherminn með verði, lýsingu, reglum, tímasetningu, þátttakendafjölda og verðlaunum.</p>
+          </div>
+          <a class="btn btn-secondary" href="/admin/mot">Til baka í mót</a>
+        </section>
 
     <section class="admin-form-card">
       <form class="admin-form tournament-admin-form" id="tournament-form">
@@ -70,4 +71,6 @@
         location.href = "/admin/mot/" + encodeURIComponent(tournamentId);
       });
     </script>
+    </div>
+    </div>
 {% include "footer" %}

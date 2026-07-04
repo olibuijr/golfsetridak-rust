@@ -1,16 +1,17 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>Vörur</h1>
-        <p class="lede">Stjórna vörum og flokkum í versluninni.</p>
-      </div>
-      <div class="btn-row">
-        <a class="btn btn-secondary" href="/admin/vorur/flokkar">Flokkar</a>
-        <a class="btn btn-primary" href="/admin/vorur/nytt">Ný vara</a>
-      </div>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>Vörur</h1>
+            <p class="lede">Stjórna vörum og flokkum í versluninni.</p>
+          </div>
+          <div class="btn-row">
+            <a class="btn btn-secondary" href="/admin/vorur/flokkar">Flokkar</a>
+            <a class="btn btn-primary" href="/admin/vorur/nytt">Ný vara</a>
+          </div>
+        </section>
 
     <section class="admin-table-wrap">
       <table class="admin-table">
@@ -50,4 +51,6 @@
         location.reload();
       }
     </script>
+    </div>
+    </div>
 {% include "footer" %}

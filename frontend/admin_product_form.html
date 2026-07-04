@@ -1,13 +1,14 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>{{ form_title }}</h1>
-        <p class="lede">Skráðu heiti, verð, flokk og stöðu vöru.</p>
-      </div>
-      <a class="btn btn-secondary" href="/admin/vorur">Til baka í vörur</a>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>{{ form_title }}</h1>
+            <p class="lede">Skráðu heiti, verð, flokk og stöðu vöru.</p>
+          </div>
+          <a class="btn btn-secondary" href="/admin/vorur">Til baka í vörur</a>
+        </section>
 
     <section class="admin-form-card">
       <form class="admin-form" id="product-form">
@@ -59,4 +60,6 @@
         location.href = "/admin/vorur/" + encodeURIComponent(productId);
       });
     </script>
+    </div>
+    </div>
 {% include "footer" %}

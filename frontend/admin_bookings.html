@@ -1,12 +1,13 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>Bókanir</h1>
-        <p class="lede">{{ total_bookings }} bókanir í kerfinu · {{ confirmed_bookings }} staðfestar.</p>
-      </div>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>Bókanir</h1>
+            <p class="lede">{{ total_bookings }} bókanir í kerfinu · {{ confirmed_bookings }} staðfestar.</p>
+          </div>
+        </section>
 
     <section class="admin-table-wrap">
       <table class="admin-table">
@@ -31,4 +32,6 @@
       </table>
       {% if total_bookings %}{% else %}<p class="muted admin-empty">Engar bókanir skráðar.</p>{% endif %}
     </section>
+    </div>
+    </div>
 {% include "footer" %}

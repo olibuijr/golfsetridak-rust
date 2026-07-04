@@ -1,12 +1,13 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>Notendur</h1>
-        <p class="lede">Stjórna notendum, hlutverkum og föstu verði.</p>
-      </div>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>Notendur</h1>
+            <p class="lede">Stjórna notendum, hlutverkum og föstu verði.</p>
+          </div>
+        </section>
 
     <section class="admin-table-wrap">
       <table class="admin-table">
@@ -33,4 +34,6 @@
       <p class="muted admin-empty">Engir notendur skráðir enn.</p>
       {% endif %}
     </section>
+    </div>
+    </div>
 {% include "footer" %}

@@ -1,12 +1,75 @@
-<nav class="admin-nav" aria-label="Stjórnborð">
-  <a href="/admin/bookings" {% if admin_section == "bookings" %}class="is-active"{% endif %}>Bókanir</a>
-  <a href="/admin/payments" {% if admin_section == "payments" %}class="is-active"{% endif %}>Greiðslur</a>
-  <a href="/admin/users" {% if admin_section == "users" %}class="is-active"{% endif %}>Notendur</a>
-  <a href="/admin/mot" {% if admin_section == "tournaments" %}class="is-active"{% endif %}>Mót</a>
-  <a href="/admin/vorur" {% if admin_section == "products" %}class="is-active"{% endif %}>Vörur</a>
-  <a href="/admin/gift-cards" {% if admin_section == "giftcards" %}class="is-active"{% endif %}>Gjafabréf</a>
-  <a href="/admin/sms" {% if admin_section == "sms" %}class="is-active"{% endif %}>SMS</a>
-  <a href="/admin/tilkynningar" {% if admin_section == "announcements" %}class="is-active"{% endif %}>Tilkynningar</a>
-  <a href="/admin/settings" {% if admin_section == "settings" %}class="is-active"{% endif %}>Stillingar</a>
-  <a href="/notendahandbok">Notendahandbók</a>
-</nav>
+<button class="admin-sidebar-toggle" type="button" aria-label="Opna stjórnborðsvalmynd" aria-controls="admin-sidebar" aria-expanded="false">
+  <span class="admin-sidebar-toggle-bar"></span>
+  <span class="admin-sidebar-toggle-bar"></span>
+  <span class="admin-sidebar-toggle-bar"></span>
+</button>
+<div class="admin-sidebar-overlay" hidden data-admin-sidebar-close></div>
+<aside class="admin-sidebar" id="admin-sidebar" role="navigation" aria-label="Stjórnborð">
+  <div class="admin-sidebar-head">
+    <a class="admin-sidebar-brand" href="/">
+      <img src="/assets/mark.svg" width="28" height="28" alt="" aria-hidden="true" />
+      <span class="admin-sidebar-brand-text">Stjórnborð</span>
+    </a>
+  </div>
+  <nav class="admin-sidebar-nav">
+    <a href="/admin/bookings" class="admin-sidebar-link {% if admin_section == "bookings" %}is-active{% endif %}">Bókanir</a>
+    <a href="/admin/payments" class="admin-sidebar-link {% if admin_section == "payments" %}is-active{% endif %}">Greiðslur</a>
+    <a href="/admin/users" class="admin-sidebar-link {% if admin_section == "users" %}is-active{% endif %}">Notendur</a>
+    <a href="/admin/mot" class="admin-sidebar-link {% if admin_section == "tournaments" %}is-active{% endif %}">Mót</a>
+    <a href="/admin/vorur" class="admin-sidebar-link {% if admin_section == "products" %}is-active{% endif %}">Vörur</a>
+    <a href="/admin/gift-cards" class="admin-sidebar-link {% if admin_section == "giftcards" %}is-active{% endif %}">Gjafabréf</a>
+    <a href="/admin/sms" class="admin-sidebar-link {% if admin_section == "sms" %}is-active{% endif %}">SMS</a>
+    <a href="/admin/tilkynningar" class="admin-sidebar-link {% if admin_section == "announcements" %}is-active{% endif %}">Tilkynningar</a>
+    <a href="/admin/settings" class="admin-sidebar-link {% if admin_section == "settings" %}is-active{% endif %}">Stillingar</a>
+  </nav>
+  <div class="admin-sidebar-foot">
+    <a href="/notendahandbok" class="admin-sidebar-link admin-sidebar-link-help">Notendahandbók</a>
+    {% if auth_user_email %}
+    <div class="admin-sidebar-user">
+      <span class="admin-sidebar-user-avatar" aria-hidden="true">{{ auth_user_email | slice:0,1 | upper }}</span>
+      <div class="admin-sidebar-user-info">
+        <span class="admin-sidebar-user-name">{{ auth_user_email }}</span>
+        <form method="post" action="/logout">
+          <button class="admin-sidebar-logout" type="submit">Útskrá</button>
+        </form>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</aside>
+<script>
+  (function () {
+    var sidebar = document.getElementById("admin-sidebar");
+    var toggle = document.querySelector(".admin-sidebar-toggle");
+    var overlay = document.querySelector(".admin-sidebar-overlay");
+    if (!sidebar || !toggle || !overlay) return;
+
+    function open() {
+      sidebar.classList.add("is-open");
+      overlay.hidden = false;
+      overlay.classList.add("is-visible");
+      toggle.setAttribute("aria-expanded", "true");
+      document.body.style.overflow = "hidden";
+    }
+
+    function close() {
+      sidebar.classList.remove("is-open");
+      overlay.hidden = true;
+      overlay.classList.remove("is-visible");
+      toggle.setAttribute("aria-expanded", "false");
+      document.body.style.overflow = "";
+    }
+
+    toggle.addEventListener("click", function () {
+      sidebar.classList.contains("is-open") ? close() : open();
+    });
+
+    overlay.addEventListener("click", close);
+
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && sidebar.classList.contains("is-open")) {
+        close();
+      }
+    });
+  })();
+</script>

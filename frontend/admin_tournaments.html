@@ -1,15 +1,16 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>Mót</h1>
-        <p class="lede">Stjórna mótum, verði, reglum, dagsetningum, þátttakendafjölda og verðlaunum.</p>
-      </div>
-      <div class="btn-row">
-        <a class="btn btn-primary" href="/admin/mot/nytt">Nýtt mót</a>
-      </div>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>Mót</h1>
+            <p class="lede">Stjórna mótum, verði, reglum, dagsetningum, þátttakendafjölda og verðlaunum.</p>
+          </div>
+          <div class="btn-row">
+            <a class="btn btn-primary" href="/admin/mot/nytt">Nýtt mót</a>
+          </div>
+        </section>
 
     <section class="admin-table-wrap">
       {% if has_tournaments %}
@@ -58,4 +59,6 @@
         location.reload();
       }
     </script>
+    </div>
+    </div>
 {% include "footer" %}

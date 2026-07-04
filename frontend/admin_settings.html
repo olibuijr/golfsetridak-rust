@@ -1,12 +1,13 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>Stillingar</h1>
-        <p class="lede">Millifærsluupplýsingar og tilkynningar.</p>
-      </div>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>Stillingar</h1>
+            <p class="lede">Millifærsluupplýsingar og tilkynningar.</p>
+          </div>
+        </section>
 
     {% if saved %}<p class="admin-banner admin-banner-ok">Stillingar vistaðar.</p>{% endif %}
     {% if error %}<p class="admin-banner admin-banner-error">{{ error }}</p>{% endif %}
@@ -36,4 +37,6 @@
         <button class="btn btn-primary" type="submit">Vista tilkynningar</button>
       </form>
     </section>
+    </div>
+    </div>
 {% include "footer" %}

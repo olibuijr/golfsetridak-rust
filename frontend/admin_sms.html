@@ -1,12 +1,13 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>SMS sniðmát</h1>
-        <p class="lede">Skilaboð sem send eru sjálfvirkt við bókanir, kaup og gjafabréf.</p>
-      </div>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>SMS sniðmát</h1>
+            <p class="lede">Skilaboð sem send eru sjálfvirkt við bókanir, kaup og gjafabréf.</p>
+          </div>
+        </section>
 
     {% if saved %}<p class="admin-banner admin-banner-ok">Sniðmát vistað.</p>{% endif %}
     {% if error %}<p class="admin-banner admin-banner-error">{{ error }}</p>{% endif %}
@@ -21,4 +22,6 @@
       </form>
     </section>
     {% endfor %}
+    </div>
+    </div>
 {% include "footer" %}

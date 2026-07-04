@@ -1,15 +1,16 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>Gjafabréf</h1>
-        <p class="lede">Útgefin gjafabréf og innlausnasaga.</p>
-      </div>
-      <div class="btn-row">
-        <a class="btn btn-primary" href="/admin/gift-cards/new">Útgefa gjafabréf</a>
-      </div>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>Gjafabréf</h1>
+            <p class="lede">Útgefin gjafabréf og innlausnasaga.</p>
+          </div>
+          <div class="btn-row">
+            <a class="btn btn-primary" href="/admin/gift-cards/new">Útgefa gjafabréf</a>
+          </div>
+        </section>
 
     <section class="admin-table-wrap">
       {% if has_cards %}
@@ -46,4 +47,6 @@
       </div>
       {% endif %}
     </section>
+    </div>
+    </div>
 {% include "footer" %}

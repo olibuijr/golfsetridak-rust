@@ -1,13 +1,14 @@
 {% include "header" %}
-    <section class="admin-head">
-      <div>
-        <span class="eyebrow">Stjórnborð</span>
-        <h1>Flokkar</h1>
-        <p class="lede">Stjórna vöruflokkum í versluninni.</p>
-      </div>
-      <a class="btn btn-secondary" href="/admin/vorur">Til baka í vörur</a>
+    <div class="admin-layout">
       {% include "admin_nav" %}
-    </section>
+      <div class="admin-main">
+        <section class="admin-head">
+          <div>
+            <h1>Flokkar</h1>
+            <p class="lede">Stjórna vöruflokkum í versluninni.</p>
+          </div>
+          <a class="btn btn-secondary" href="/admin/vorur">Til baka í vörur</a>
+        </section>
 
     <section class="admin-form-card">
       <h2>Nýr flokkur</h2>
@@ -68,4 +69,6 @@
         location.reload();
       }
     </script>
+    </div>
+    </div>
 {% include "footer" %}
