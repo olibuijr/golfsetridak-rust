@@ -375,6 +375,7 @@ fn render_login(root: &Path, error: &str, email: &str, sent: bool, next: &str) -
             "page_title".into(),
             Value::Str("Innskráning — Golfsetrið Akureyri".into()),
         ));
+        pairs.push(("version".into(), Value::Str(crate::serve::VERSION.into())));
     }
     match engine.render("login", &context) {
         Ok(html) => Response::ok().with_html(&html),
