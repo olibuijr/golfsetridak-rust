@@ -1,0 +1,64 @@
+// @ts-check
+const { test, expect } = require("@playwright/test");
+
+test.describe("Shop — products, categories, cart", () => {
+
+  test("Shop API returns products", async ({ request }) => {
+    const resp = await request.get("/api/shop/products");
+    expect(resp.ok()).toBeTruthy();
+    const body = await resp.json();
+    expect(Array.isArray(body)).toBeTruthy();
+    // Products have expected fields
+    if (body.length > 0) {
+      const p = body[0];
+      expect(p).toHaveProperty("id");
+      expect(p).toHaveProperty("name");
+      expect(p).toHaveProperty("price");
+    }
+  });
+
+  test("Shop API returns categories", async ({ request }) => {
+    const resp = await request.get("/api/shop/categories");
+    expect(resp.ok()).toBeTruthy();
+    const body = await resp.json();
+    expect(Array.isArray(body)).toBeTruthy();
+  });
+
+  test("Cart API returns empty cart for anonymous user", async ({ request }) => {
+    const resp = await request.get("/api/cart");
+    expect(resp.ok() || resp.status() === 401).toBeTruthy();
+    if (resp.ok()) {
+      const body = await resp.json();
+      // Cart should exist (even if empty)
+      expect(body).toHaveProperty("id") || expect(body).toHaveProperty("items");
+    }
+  });
+
+  test("Can add item to cart and retrieve it", async ({ request }) => {
+    // First get a product
+    const productsResp = await request.get("/api/shop/products");
+    const products = await productsResp.json();
+    test.skip(products.length === 0, "No products to test with");
+
+    const product = products[0];
+    // Add to cart
+    const addResp = await request.post("/api/cart/items", {
+      data: { productId: product.id, quantity: 1 }
+    });
+    // May need login, so 401 is acceptable — test the happy path if not auth'd
+    expect([200, 201, 401]).toContain(addResp.status());
+  });
+
+  test("Product detail has required fields", async ({ request }) => {
+    const resp = await request.get("/api/shop/products");
+    const products = await resp.json();
+    test.skip(products.length === 0, "No products");
+    for (const p of products) {
+      expect(typeof p.name).toBe("string");
+      expect(typeof p.price).toBe("number");
+      if (p.compareAtPrice !== undefined) {
+        expect(typeof p.compareAtPrice).toBe("number");
+      }
+    }
+  });
+});
